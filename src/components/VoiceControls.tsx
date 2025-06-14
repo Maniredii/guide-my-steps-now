@@ -39,7 +39,45 @@ export const VoiceControls = ({
   const [transcript, setTranscript] = useState('');
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   const [confidence, setConfidence] = useState(0);
+  const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running'>('stopped');
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const clearRestartTimeout = () => {
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+  };
+
+  const startRecognition = () => {
+    if (!recognitionRef.current || recognitionState !== 'stopped') {
+      return;
+    }
+
+    try {
+      console.log('Starting speech recognition...');
+      setRecognitionState('starting');
+      recognitionRef.current.start();
+    } catch (error) {
+      console.log('Failed to start recognition:', error);
+      setRecognitionState('stopped');
+      // Retry after a delay
+      restartTimeoutRef.current = setTimeout(() => {
+        if (recognitionState === 'stopped') {
+          startRecognition();
+        }
+      }, 2000);
+    }
+  };
+
+  const stopRecognition = () => {
+    clearRestartTimeout();
+    if (recognitionRef.current && recognitionState !== 'stopped') {
+      console.log('Stopping speech recognition...');
+      recognitionRef.current.stop();
+    }
+  };
 
   useEffect(() => {
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
@@ -50,54 +88,54 @@ export const VoiceControls = ({
       recognitionInstance.continuous = true;
       recognitionInstance.interimResults = true;
       recognitionInstance.lang = 'en-US';
-      recognitionInstance.maxAlternatives = 3;
+      recognitionInstance.maxAlternatives = 1;
       
       recognitionInstance.onstart = () => {
         console.log('Speech recognition started');
+        setRecognitionState('running');
         onListeningChange(true);
         setTranscript('');
       };
 
       recognitionInstance.onend = () => {
         console.log('Speech recognition ended');
+        setRecognitionState('stopped');
         onListeningChange(false);
         
-        // Auto-restart listening after a short delay unless we're processing a command
+        // Auto-restart after a delay if not processing a command
         if (!isProcessingCommand) {
           restartTimeoutRef.current = setTimeout(() => {
-            if (recognitionInstance && !isProcessingCommand) {
-              try {
-                recognitionInstance.start();
-              } catch (error) {
-                console.log('Recognition restart failed:', error);
-              }
+            if (recognitionState === 'stopped' && !isProcessingCommand) {
+              startRecognition();
             }
-          }, 1000);
+          }, 1500);
         }
       };
 
       recognitionInstance.onresult = (event: any) => {
         let finalTranscript = '';
         let interimTranscript = '';
-        let maxConfidence = 0;
+        let bestConfidence = 0;
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
-          const confidence = event.results[i][0].confidence || 0;
+          const confidence = event.results[i][0].confidence || 0.8;
           
           if (event.results[i].isFinal) {
             finalTranscript += transcript;
-            maxConfidence = Math.max(maxConfidence, confidence);
+            bestConfidence = confidence;
           } else {
             interimTranscript += transcript;
           }
         }
 
-        setTranscript(finalTranscript + interimTranscript);
-        setConfidence(maxConfidence);
+        const displayTranscript = finalTranscript || interimTranscript;
+        setTranscript(displayTranscript);
+        setConfidence(bestConfidence);
 
-        if (finalTranscript && maxConfidence > 0.3) { // Lower confidence threshold
-          console.log('Processing command:', finalTranscript, 'Confidence:', maxConfidence);
+        // Process final transcript with lower confidence threshold
+        if (finalTranscript && bestConfidence > 0.2) {
+          console.log('Processing final command:', finalTranscript, 'Confidence:', bestConfidence);
           setIsProcessingCommand(true);
           processVoiceCommand(finalTranscript.toLowerCase().trim());
           
@@ -110,49 +148,58 @@ export const VoiceControls = ({
       };
 
       recognitionInstance.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
+        console.log('Speech recognition error:', event.error);
+        setRecognitionState('stopped');
         onListeningChange(false);
         
-        if (event.error === 'no-speech') {
-          // Don't announce no-speech errors to avoid interruption
-          console.log('No speech detected');
-        } else if (event.error === 'network') {
-          speak('Network error. Voice recognition temporarily unavailable.');
-        } else {
-          console.log('Voice recognition error:', event.error);
+        // Don't restart on abort errors to prevent loops
+        if (event.error === 'aborted') {
+          console.log('Recognition aborted, not restarting');
+          return;
         }
         
-        // Restart recognition after error
-        setTimeout(() => {
-          if (!isProcessingCommand) {
-            try {
-              recognitionInstance.start();
-            } catch (error) {
-              console.log('Failed to restart recognition after error');
-            }
+        if (event.error === 'no-speech') {
+          console.log('No speech detected, continuing...');
+        } else if (event.error === 'network') {
+          speak('Network error. Voice recognition temporarily unavailable.');
+        }
+        
+        // Restart recognition after other errors with longer delay
+        clearRestartTimeout();
+        restartTimeoutRef.current = setTimeout(() => {
+          if (!isProcessingCommand && recognitionState === 'stopped') {
+            startRecognition();
           }
-        }, 2000);
+        }, 3000);
       };
 
+      recognitionRef.current = recognitionInstance;
       setRecognition(recognitionInstance);
       
       // Auto-start recognition
-      try {
-        recognitionInstance.start();
-      } catch (error) {
-        console.log('Initial recognition start failed');
-      }
+      startRecognition();
     } else {
       console.log('Speech recognition not supported');
       speak('Voice recognition is not supported in this browser or device.');
     }
 
     return () => {
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current);
+      clearRestartTimeout();
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
     };
-  }, [onListeningChange, isProcessingCommand]);
+  }, []);
+
+  // Update recognition state when processing changes
+  useEffect(() => {
+    if (!isProcessingCommand && recognitionState === 'stopped') {
+      const timeout = setTimeout(() => {
+        startRecognition();
+      }, 1000);
+      return () => clearTimeout(timeout);
+    }
+  }, [isProcessingCommand, recognitionState]);
 
   const processVoiceCommand = (command: string) => {
     console.log('Processing command:', command);
@@ -165,59 +212,57 @@ export const VoiceControls = ({
       .trim();
 
     // More flexible wake word detection
-    const hasWakeWord = normalizedCommand.includes('hey vision') || 
-                       normalizedCommand.includes('vision') || 
-                       normalizedCommand.includes('hey google') || // Common misheard wake words
-                       normalizedCommand.includes('hey siri') ||
-                       normalizedCommand.startsWith('vision') ||
-                       normalizedCommand.includes('vision guide');
+    const wakeWords = ['hey vision', 'vision', 'hey google', 'hey siri', 'division', 'revision'];
+    const hasWakeWord = wakeWords.some(wake => normalizedCommand.includes(wake));
 
     if (!hasWakeWord) {
       console.log('No wake word detected in:', normalizedCommand);
       return;
     }
 
-    // Extract command after wake word
-    let cleanCommand = normalizedCommand
-      .replace(/hey vision|vision guide|hey google|hey siri|vision/g, '')
-      .trim();
+    // Extract command after wake word - remove all wake words
+    let cleanCommand = normalizedCommand;
+    wakeWords.forEach(wake => {
+      cleanCommand = cleanCommand.replace(new RegExp(wake, 'g'), '');
+    });
+    cleanCommand = cleanCommand.trim();
 
     console.log('Clean command:', cleanCommand);
 
     // Mode switching with more flexible matching
-    if (cleanCommand.match(/camera|vision|see|look|watch|detect/)) {
+    if (cleanCommand.match(/camera|vision|see|look|watch|detect|view/)) {
       onVoiceCommand('camera');
       return;
     }
     
-    if (cleanCommand.match(/navigate|walk|direction|guide|move|go/)) {
+    if (cleanCommand.match(/navigate|walk|direction|guide|move|go|navigation/)) {
       onVoiceCommand('navigation');
       return;
     }
     
-    if (cleanCommand.match(/emergency|help|urgent|danger|call/)) {
+    if (cleanCommand.match(/emergency|help|urgent|danger|call|emergency/)) {
       onVoiceCommand('emergency');
       return;
     }
     
-    if (cleanCommand.match(/settings|preferences|configure|setup|adjust/)) {
+    if (cleanCommand.match(/settings|preferences|configure|setup|adjust|setting/)) {
       onVoiceCommand('settings');
       return;
     }
 
-    // Camera mode commands with flexible matching
+    // Camera mode commands
     if (currentMode === 'camera') {
-      if (cleanCommand.match(/start|activate|turn on|begin|open/)) {
+      if (cleanCommand.match(/start|activate|turn on|begin|open|on/)) {
         onCameraAction('start');
         speak('Starting camera for object detection');
         return;
       }
-      if (cleanCommand.match(/stop|close|turn off|end|deactivate/)) {
+      if (cleanCommand.match(/stop|close|turn off|end|deactivate|off/)) {
         onCameraAction('stop');
         speak('Stopping camera');
         return;
       }
-      if (cleanCommand.match(/analyze|describe|what do you see|look|scan|check/)) {
+      if (cleanCommand.match(/analyze|describe|what do you see|scan|check|tell me/)) {
         onCameraAction('analyze');
         speak('Analyzing your surroundings now');
         return;
@@ -226,11 +271,11 @@ export const VoiceControls = ({
 
     // Navigation mode commands
     if (currentMode === 'navigation') {
-      if (cleanCommand.match(/start|begin|activate|turn on/)) {
+      if (cleanCommand.match(/start|begin|activate|turn on|navigation/)) {
         onNavigationAction('start');
         return;
       }
-      if (cleanCommand.match(/next|continue|forward|proceed/)) {
+      if (cleanCommand.match(/next|continue|forward|proceed|step/)) {
         onNavigationAction('next');
         return;
       }
@@ -321,19 +366,11 @@ export const VoiceControls = ({
       return;
     }
 
-    if (isListening) {
-      recognition.stop();
+    if (recognitionState === 'running') {
+      stopRecognition();
       setIsProcessingCommand(false);
-      if (restartTimeoutRef.current) {
-        clearTimeout(restartTimeoutRef.current);
-      }
-    } else {
-      try {
-        recognition.start();
-      } catch (error) {
-        console.log('Failed to start recognition manually');
-        speak('Voice recognition could not be started. Please try again.');
-      }
+    } else if (recognitionState === 'stopped') {
+      startRecognition();
     }
   };
 
@@ -358,13 +395,13 @@ export const VoiceControls = ({
         <Button
           onClick={toggleListening}
           className={`${
-            isListening 
+            recognitionState === 'running'
               ? 'bg-green-500 hover:bg-green-600 animate-pulse' 
               : 'bg-red-500 hover:bg-red-600'
           } text-white w-20 h-20 rounded-full transition-all duration-300 transform hover:scale-110`}
-          onFocus={() => speak(isListening ? 'Voice listening active' : 'Voice listening inactive')}
+          onFocus={() => speak(recognitionState === 'running' ? 'Voice listening active' : 'Voice listening inactive')}
         >
-          {isListening ? (
+          {recognitionState === 'running' ? (
             <Mic className="w-8 h-8" />
           ) : (
             <MicOff className="w-8 h-8" />
@@ -402,9 +439,15 @@ export const VoiceControls = ({
 
       {/* Status Indicator */}
       <div className="flex items-center justify-center mt-4 gap-2">
-        <div className={`w-3 h-3 rounded-full ${isListening ? 'bg-green-400 animate-pulse' : 'bg-red-500'}`}></div>
+        <div className={`w-3 h-3 rounded-full ${
+          recognitionState === 'running' ? 'bg-green-400 animate-pulse' : 
+          recognitionState === 'starting' ? 'bg-yellow-400 animate-pulse' : 
+          'bg-red-500'
+        }`}></div>
         <span className="text-white text-sm">
-          {isListening ? 'Always listening for "Hey Vision"...' : 'Voice recognition stopped'}
+          {recognitionState === 'running' ? 'Always listening for "Hey Vision"...' : 
+           recognitionState === 'starting' ? 'Starting voice recognition...' :
+           'Voice recognition stopped'}
         </span>
       </div>
 
