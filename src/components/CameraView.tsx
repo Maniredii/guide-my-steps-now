@@ -1,6 +1,6 @@
 
 import { useState, useRef, useEffect } from 'react';
-import { Camera, Eye, AlertTriangle, Users, Car, TreePine } from 'lucide-react';
+import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';

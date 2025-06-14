@@ -4,6 +4,14 @@ import { Mic, MicOff, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
+// Add TypeScript declarations for Web Speech API
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any;
+    SpeechRecognition: any;
+  }
+}
+
 interface VoiceControlsProps {
   isListening: boolean;
   onListeningChange: (listening: boolean) => void;
@@ -17,7 +25,7 @@ export const VoiceControls = ({
   onVoiceCommand, 
   speak 
 }: VoiceControlsProps) => {
-  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [recognition, setRecognition] = useState<any>(null);
   const [transcript, setTranscript] = useState('');
 
   useEffect(() => {
@@ -38,7 +46,7 @@ export const VoiceControls = ({
         onListeningChange(false);
       };
 
-      recognitionInstance.onresult = (event) => {
+      recognitionInstance.onresult = (event: any) => {
         let finalTranscript = '';
         let interimTranscript = '';
 
@@ -59,7 +67,7 @@ export const VoiceControls = ({
         }
       };
 
-      recognitionInstance.onerror = (event) => {
+      recognitionInstance.onerror = (event: any) => {
         console.error('Speech recognition error:', event.error);
         onListeningChange(false);
         if (event.error === 'no-speech') {
