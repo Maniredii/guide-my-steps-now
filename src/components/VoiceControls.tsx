@@ -61,6 +61,8 @@ export const VoiceControls = ({
     learningScore: 0
   });
   const [aiProcessingState, setAiProcessingState] = useState<'idle' | 'analyzing' | 'learning'>('idle');
+  const [isWaitingForCommand, setIsWaitingForCommand] = useState(false);
+  const [lastUserActivity, setLastUserActivity] = useState(Date.now());
   
   const recognitionRef = useRef<any>(null);
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -75,6 +77,9 @@ export const VoiceControls = ({
   });
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const waitingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSpeechRef = useRef<string>('');
+  const isSpeakingInternalRef = useRef(false);
 
   // Advanced AI-powered command patterns with phonetic matching
   const commandPatterns: CommandPattern[] = [
@@ -115,6 +120,65 @@ export const VoiceControls = ({
       context: ['configuration', 'adjustment']
     }
   ];
+
+  // Enhanced speak function with duplicate prevention
+  const speakOnce = (text: string) => {
+    // Prevent duplicate speech
+    if (text === lastSpeechRef.current || isSpeakingInternalRef.current) {
+      console.log('Preventing duplicate speech:', text);
+      return;
+    }
+    
+    lastSpeechRef.current = text;
+    isSpeakingInternalRef.current = true;
+    
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 0.8;
+      utterance.pitch = 1;
+      utterance.volume = 1;
+      
+      utterance.onstart = () => {
+        console.log('Speech started:', text);
+      };
+      
+      utterance.onend = () => {
+        console.log('Speech ended:', text);
+        isSpeakingInternalRef.current = false;
+        // Clear the last speech after a delay to allow new messages
+        setTimeout(() => {
+          lastSpeechRef.current = '';
+        }, 2000);
+      };
+      
+      utterance.onerror = () => {
+        isSpeakingInternalRef.current = false;
+        lastSpeechRef.current = '';
+      };
+      
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Reset waiting timeout when user activity is detected
+  const resetWaitingTimeout = () => {
+    setLastUserActivity(Date.now());
+    setIsWaitingForCommand(false);
+    
+    if (waitingTimeoutRef.current) {
+      clearTimeout(waitingTimeoutRef.current);
+    }
+    
+    // Set new timeout for 1 minute (60000ms)
+    waitingTimeoutRef.current = setTimeout(() => {
+      if (recognitionState === 'running' && !isProcessingCommand) {
+        console.log('User inactive for 1 minute, prompting for command');
+        setIsWaitingForCommand(true);
+        speakOnce("I'm waiting for your command. Say hey vision followed by your request.");
+      }
+    }, 60000);
+  };
 
   // Advanced text preprocessing with noise reduction
   const preprocessText = (text: string): string => {
@@ -436,6 +500,7 @@ export const VoiceControls = ({
       clearRestartTimeout();
       setupAudioProcessing();
       recognitionRef.current.start();
+      resetWaitingTimeout(); // Start the waiting timeout
     } catch (error) {
       console.error('Failed to start recognition:', error);
       setRecognitionState('stopped');
@@ -453,6 +518,10 @@ export const VoiceControls = ({
   const stopRecognition = () => {
     isManualStopRef.current = true;
     clearRestartTimeout();
+    
+    if (waitingTimeoutRef.current) {
+      clearTimeout(waitingTimeoutRef.current);
+    }
     
     if (recognitionRef.current && recognitionState !== 'stopped') {
       console.log('Stopping AI speech recognition...');
@@ -478,9 +547,12 @@ export const VoiceControls = ({
     });
   };
 
-  // Enhanced voice command processing with AI
+  // Enhanced voice command processing with activity tracking
   const processVoiceCommandAI = (command: string, confidence: number) => {
     console.log('Processing AI-enhanced command:', command, 'Confidence:', confidence);
+    
+    // Reset activity timeout since user spoke
+    resetWaitingTimeout();
     
     // Prevent duplicate processing
     if (command === lastProcessedTranscriptRef.current) {
@@ -537,9 +609,9 @@ export const VoiceControls = ({
     // If no command matched with high confidence, try learning-based suggestions
     const suggestions = generateCommandSuggestions(cleanCommand);
     if (suggestions.length > 0) {
-      speak(`I heard "${cleanCommand}" but didn't recognize it. Did you mean ${suggestions[0]}? The AI is learning your speech patterns.`);
+      speakOnce(`I heard "${cleanCommand}" but didn't recognize it. Did you mean ${suggestions[0]}?`);
     } else {
-      speak(`I heard "${cleanCommand}" but didn't recognize the command. The AI is analyzing your speech for better recognition. Try saying hey vision help for available commands.`);
+      speakOnce(`I heard "${cleanCommand}" but didn't recognize the command. Try saying hey vision help for available commands.`);
     }
     
     updateAccuracyMetrics(false, confidence);
@@ -550,10 +622,10 @@ export const VoiceControls = ({
   // AI-enhanced main command processing
   const processMainCommandsAI = (command: string, confidence: number): boolean => {
     const modeCommands = [
-      { mode: 'camera', response: 'AI-enhanced camera mode activated for smart object detection' },
-      { mode: 'navigation', response: 'AI-powered navigation mode activated for intelligent walking guidance' },
-      { mode: 'emergency', response: 'Emergency assistance panel opened with AI support' },
-      { mode: 'settings', response: 'Settings panel opened with AI learning preferences' }
+      { mode: 'camera', response: 'Camera mode activated for smart object detection' },
+      { mode: 'navigation', response: 'Navigation mode activated for walking guidance' },
+      { mode: 'emergency', response: 'Emergency assistance panel opened' },
+      { mode: 'settings', response: 'Settings panel opened' }
     ];
 
     for (const modeCmd of modeCommands) {
@@ -562,7 +634,7 @@ export const VoiceControls = ({
       
       if (matchResult.match) {
         onVoiceCommand(modeCmd.mode);
-        speak(modeCmd.response);
+        speakOnce(modeCmd.response);
         updateAccuracyMetrics(true, matchResult.confidence);
         setIsProcessingCommand(false);
         return true;
@@ -578,9 +650,9 @@ export const VoiceControls = ({
 
     if (currentMode === 'camera') {
       const cameraCommands = [
-        { action: 'start', patterns: ['start', 'activate', 'turn on', 'begin', 'open', 'on'], response: 'AI camera analysis starting' },
-        { action: 'stop', patterns: ['stop', 'close', 'turn off', 'end', 'deactivate', 'off'], response: 'AI camera analysis stopped' },
-        { action: 'analyze', patterns: ['analyze', 'describe', 'what do you see', 'scan', 'check', 'tell me'], response: 'AI analyzing your surroundings with enhanced recognition' }
+        { action: 'start', patterns: ['start', 'activate', 'turn on', 'begin', 'open', 'on'], response: 'Camera analysis starting' },
+        { action: 'stop', patterns: ['stop', 'close', 'turn off', 'end', 'deactivate', 'off'], response: 'Camera analysis stopped' },
+        { action: 'analyze', patterns: ['analyze', 'describe', 'what do you see', 'scan', 'check', 'tell me'], response: 'Analyzing your surroundings' }
       ];
       
       for (const cmd of cameraCommands) {
@@ -592,7 +664,7 @@ export const VoiceControls = ({
         
         if (bestMatch > 0.6) {
           onCameraAction(cmd.action);
-          speak(cmd.response);
+          speakOnce(cmd.response);
           setIsProcessingCommand(false);
           return true;
         }
@@ -608,11 +680,11 @@ export const VoiceControls = ({
     const generalCommands = [
       { 
         patterns: ['status', 'where am i', 'current mode', 'what mode'], 
-        response: `AI Status: You are in ${currentMode} mode. Learning score: ${Math.round(accuracyMetrics.learningScore * 100)}%. Say hey vision followed by camera, navigate, emergency, or settings to switch modes.`
+        response: `You are in ${currentMode} mode. Say hey vision followed by camera, navigate, emergency, or settings to switch modes.`
       },
       { 
         patterns: ['help', 'commands', 'what can you do', 'instructions'], 
-        response: 'AI-Enhanced Commands: Say hey vision followed by: camera for smart object detection, navigate for AI walking guidance, emergency for intelligent help, or settings for AI preferences. The system learns from your speech patterns.'
+        response: 'Available commands: Say hey vision followed by camera for object detection, navigate for walking guidance, emergency for help, or settings for preferences.'
       }
     ];
 
@@ -624,7 +696,7 @@ export const VoiceControls = ({
       }
       
       if (bestMatch > 0.6) {
-        speak(cmd.response);
+        speakOnce(cmd.response);
         setIsProcessingCommand(false);
         return true;
       }
@@ -667,12 +739,17 @@ export const VoiceControls = ({
         onListeningChange(true);
         setTranscript('');
         isManualStopRef.current = false;
+        resetWaitingTimeout(); // Reset timeout when recognition starts
       };
 
       recognitionInstance.onend = () => {
         console.log('AI speech recognition ended');
         setRecognitionState('stopped');
         onListeningChange(false);
+        
+        if (waitingTimeoutRef.current) {
+          clearTimeout(waitingTimeoutRef.current);
+        }
         
         if (!isManualStopRef.current) {
           restartTimeoutRef.current = setTimeout(() => {
@@ -710,6 +787,11 @@ export const VoiceControls = ({
 
         const displayTranscript = finalTranscript || interimTranscript;
         setTranscript(displayTranscript);
+        
+        // Reset waiting timeout since user is speaking
+        if (displayTranscript.trim()) {
+          resetWaitingTimeout();
+        }
         
         // AI-enhanced confidence calculation
         const audioQuality = analyzeAudioQuality();
@@ -761,8 +843,12 @@ export const VoiceControls = ({
         setRecognitionState('stopped');
         onListeningChange(false);
         
+        if (waitingTimeoutRef.current) {
+          clearTimeout(waitingTimeoutRef.current);
+        }
+        
         if (event.error === 'not-allowed') {
-          speak('Microphone access denied. Please allow microphone permissions for AI-enhanced recognition.');
+          speakOnce('Microphone access denied. Please allow microphone permissions.');
           isManualStopRef.current = true;
           return;
         }
@@ -780,11 +866,14 @@ export const VoiceControls = ({
       recognitionRef.current = recognitionInstance;
       setTimeout(startRecognition, 300);
     } else {
-      speak('AI-enhanced voice recognition is not supported in this browser.');
+      speakOnce('Voice recognition is not supported in this browser.');
     }
 
     return () => {
       clearRestartTimeout();
+      if (waitingTimeoutRef.current) {
+        clearTimeout(waitingTimeoutRef.current);
+      }
       if (recognitionRef.current) {
         isManualStopRef.current = true;
         recognitionRef.current.stop();
@@ -798,11 +887,11 @@ export const VoiceControls = ({
   const toggleListening = () => {
     if (recognitionState === 'running') {
       stopRecognition();
-      speak('AI-enhanced voice recognition stopped');
+      speakOnce('Voice recognition stopped');
     } else {
       isManualStopRef.current = false;
       startRecognition();
-      speak('AI-enhanced voice recognition started with advanced learning capabilities. Say hey vision followed by your command');
+      speakOnce('Voice recognition started. Say hey vision followed by your command');
     }
   };
 
@@ -840,6 +929,16 @@ export const VoiceControls = ({
           )}
         </Button>
       </div>
+
+      {/* Waiting for Command Indicator */}
+      {isWaitingForCommand && (
+        <div className="bg-yellow-500/20 border-yellow-400/30 rounded-lg p-3 mb-4">
+          <p className="text-yellow-200 text-center flex items-center justify-center gap-2">
+            <Brain className="w-4 h-4 animate-pulse" />
+            Waiting for your command... Say "Hey Vision" to continue
+          </p>
+        </div>
+      )}
 
       {/* AI Processing State */}
       {aiProcessingState !== 'idle' && (
@@ -942,7 +1041,7 @@ export const VoiceControls = ({
       {/* AI Enhancement Notice */}
       <div className="mt-4 p-3 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-400/30 rounded-lg">
         <p className="text-blue-200 text-sm text-center">
-          <strong>🤖 AI-Enhanced Recognition:</strong> Using machine learning, phonetic matching, context awareness, and adaptive learning for maximum accuracy and personalization.
+          <strong>🤖 Smart Features:</strong> Speaks once per command, waits 1 minute for inactivity, then prompts for commands. Advanced AI learning for better recognition.
         </p>
       </div>
     </Card>
