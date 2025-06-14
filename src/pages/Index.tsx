@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { Camera, Volume2, Navigation, Phone, Settings, Mic, MicOff, Play, Pause } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,15 +14,25 @@ const Index = () => {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [detectedObjects, setDetectedObjects] = useState<string[]>([]);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [navigationActive, setNavigationActive] = useState(false);
+  
+  // Voice settings state
+  const [voiceSettings, setVoiceSettings] = useState({
+    rate: 0.8,
+    pitch: 1,
+    volume: 1,
+    enabled: true
+  });
 
   // Speech synthesis for voice feedback
   const speak = (text: string) => {
-    if ('speechSynthesis' in window) {
+    if ('speechSynthesis' in window && voiceSettings.enabled) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.8;
-      utterance.pitch = 1;
-      utterance.volume = 1;
+      utterance.rate = voiceSettings.rate;
+      utterance.pitch = voiceSettings.pitch;
+      utterance.volume = voiceSettings.volume;
       
       utterance.onstart = () => setIsSpeaking(true);
       utterance.onend = () => setIsSpeaking(false);
@@ -47,16 +56,93 @@ const Index = () => {
       speak('Emergency panel opened. Say call emergency for immediate assistance.');
     } else if (lowerCommand.includes('settings')) {
       setActiveMode('settings');
-      speak('Settings panel opened.');
-    } else {
-      speak('I heard: ' + command + '. You can say camera, navigate, emergency, or settings.');
+      speak('Settings panel opened. You can adjust speech settings with voice commands.');
+    }
+  };
+
+  // Handle settings changes via voice
+  const handleSettingsChange = (setting: string, value: any) => {
+    if (setting === 'speechRate') {
+      if (value === 'increase') {
+        const newRate = Math.min(voiceSettings.rate + 0.1, 2);
+        setVoiceSettings(prev => ({ ...prev, rate: newRate }));
+      } else if (value === 'decrease') {
+        const newRate = Math.max(voiceSettings.rate - 0.1, 0.1);
+        setVoiceSettings(prev => ({ ...prev, rate: newRate }));
+      }
+    } else if (setting === 'speechVolume') {
+      if (value === 'increase') {
+        const newVolume = Math.min(voiceSettings.volume + 0.1, 1);
+        setVoiceSettings(prev => ({ ...prev, volume: newVolume }));
+      } else if (value === 'decrease') {
+        const newVolume = Math.max(voiceSettings.volume - 0.1, 0.1);
+        setVoiceSettings(prev => ({ ...prev, volume: newVolume }));
+      }
+    } else if (setting === 'test') {
+      speak('This is a test of your voice settings. The speech rate, pitch, and volume have been adjusted according to your preferences.');
+    } else if (setting === 'reset') {
+      setVoiceSettings({ rate: 0.8, pitch: 1, volume: 1, enabled: true });
+      speak('Settings reset to default values');
+    }
+  };
+
+  // Handle camera actions via voice
+  const handleCameraAction = (action: string) => {
+    if (action === 'start') {
+      setCameraActive(true);
+    } else if (action === 'stop') {
+      setCameraActive(false);
+    } else if (action === 'analyze') {
+      // This will be handled by the CameraView component
+    }
+  };
+
+  // Handle navigation actions via voice
+  const handleNavigationAction = (action: string) => {
+    if (action === 'start') {
+      setNavigationActive(true);
+    } else if (action === 'stop') {
+      setNavigationActive(false);
+    }
+    // Other actions like 'next' and 'repeat' will be handled by NavigationGuide component
+  };
+
+  // Handle emergency actions via voice
+  const handleEmergencyAction = (action: string) => {
+    if (action === 'call-911') {
+      speak('Calling emergency services now');
+      if (typeof window !== 'undefined') {
+        window.location.href = 'tel:911';
+      }
+    } else if (action === 'call-family') {
+      speak('Calling family contact');
+      if (typeof window !== 'undefined') {
+        window.location.href = 'tel:+1-555-0123';
+      }
+    } else if (action === 'call-friend') {
+      speak('Calling trusted friend');
+      if (typeof window !== 'undefined') {
+        window.location.href = 'tel:+1-555-0456';
+      }
+    } else if (action === 'share-location') {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            speak('Location acquired and ready to share');
+          },
+          () => speak('Unable to get location')
+        );
+      }
+    } else if (action === 'send-help') {
+      speak('Help message prepared and ready to send');
     }
   };
 
   useEffect(() => {
     // Welcome message when app loads
     setTimeout(() => {
-      speak('Welcome to your personal vision assistant. I am here to help you navigate safely. You can use voice commands or tap the large buttons. Say camera to start object detection.');
+      speak('Welcome to Vision Guide, your personal assistant for the visually impaired. Say Hey Vision Help to hear all available commands. I am here to help you navigate safely using voice commands only.');
     }, 1000);
   }, []);
 
@@ -109,41 +195,26 @@ const Index = () => {
       </div>
 
       <div className="container mx-auto p-4 space-y-6">
-        {/* Mode Selection - Large accessible buttons */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-          {modes.map((mode) => {
-            const IconComponent = mode.icon;
-            return (
-              <Button
-                key={mode.id}
-                onClick={() => {
-                  setActiveMode(mode.id);
-                  speak(mode.label + ' mode activated');
-                }}
-                className={`${mode.color} text-white h-24 text-left p-6 transition-all duration-300 transform hover:scale-105 ${
-                  activeMode === mode.id ? 'ring-4 ring-white/50 scale-105' : ''
-                }`}
-                onFocus={() => speak(mode.label + '. ' + mode.description)}
-              >
-                <div className="flex items-center gap-4">
-                  <IconComponent className="w-8 h-8" />
-                  <div>
-                    <div className="text-xl font-bold">{mode.label}</div>
-                    <div className="text-sm opacity-90">{mode.description}</div>
-                  </div>
-                </div>
-              </Button>
-            );
-          })}
-        </div>
-
-        {/* Voice Controls */}
+        {/* Voice Controls - Always visible and primary interface */}
         <VoiceControls
           isListening={isListening}
           onListeningChange={setIsListening}
           onVoiceCommand={handleVoiceCommand}
           speak={speak}
+          currentMode={activeMode}
+          onSettingsChange={handleSettingsChange}
+          onCameraAction={handleCameraAction}
+          onNavigationAction={handleNavigationAction}
+          onEmergencyAction={handleEmergencyAction}
         />
+
+        {/* Current Mode Indicator */}
+        <Card className="bg-white/10 border-white/20 p-4">
+          <div className="text-center">
+            <h2 className="text-xl font-bold text-white mb-2">Current Mode: {activeMode.charAt(0).toUpperCase() + activeMode.slice(1)}</h2>
+            <p className="text-gray-300">Use voice commands starting with "Hey Vision" to control the app</p>
+          </div>
+        </Card>
 
         {/* Active Mode Content */}
         <Card className="bg-black/20 backdrop-blur-sm border-white/10 p-6">
@@ -152,11 +223,17 @@ const Index = () => {
               speak={speak}
               detectedObjects={detectedObjects}
               onDetectedObjects={setDetectedObjects}
+              isActive={cameraActive}
+              onActiveChange={setCameraActive}
             />
           )}
           
           {activeMode === 'navigation' && (
-            <NavigationGuide speak={speak} />
+            <NavigationGuide 
+              speak={speak} 
+              isActive={navigationActive}
+              onActiveChange={setNavigationActive}
+            />
           )}
           
           {activeMode === 'emergency' && (
@@ -164,20 +241,26 @@ const Index = () => {
           )}
           
           {activeMode === 'settings' && (
-            <SettingsPanel speak={speak} />
+            <SettingsPanel 
+              speak={speak} 
+              voiceSettings={voiceSettings}
+              onVoiceSettingsChange={setVoiceSettings}
+            />
           )}
         </Card>
 
-        {/* Quick Actions Footer */}
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2">
-          <Button
-            onClick={() => speak('Vision Guide is ready to assist you. Current mode: ' + activeMode)}
-            className="bg-white/20 backdrop-blur-sm text-white border-white/30 hover:bg-white/30 rounded-full px-8 py-3"
-          >
-            <Volume2 className="w-5 h-5 mr-2" />
-            Status Check
-          </Button>
-        </div>
+        {/* Voice Command Quick Reference */}
+        <Card className="bg-green-500/20 border-green-400/30 p-4">
+          <h3 className="text-lg font-semibold text-green-200 mb-3">Quick Voice Commands:</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-green-100">
+            <div>"Hey Vision Camera" - Object detection</div>
+            <div>"Hey Vision Navigate" - Walking guidance</div>
+            <div>"Hey Vision Emergency" - Emergency help</div>
+            <div>"Hey Vision Settings" - Adjust preferences</div>
+            <div>"Hey Vision Help" - List all commands</div>
+            <div>"Hey Vision Status" - Check current mode</div>
+          </div>
+        </Card>
       </div>
     </div>
   );
