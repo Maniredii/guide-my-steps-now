@@ -35,13 +35,16 @@ export const VoiceControls = ({
   onNavigationAction,
   onEmergencyAction
 }: VoiceControlsProps) => {
-  const [recognition, setRecognition] = useState<any>(null);
   const [transcript, setTranscript] = useState('');
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   const [confidence, setConfidence] = useState(0);
   const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running'>('stopped');
-  const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [lastCommand, setLastCommand] = useState('');
+  
   const recognitionRef = useRef<any>(null);
+  const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isManualStopRef = useRef(false);
+  const lastProcessedTranscriptRef = useRef('');
 
   const clearRestartTimeout = () => {
     if (restartTimeoutRef.current) {
@@ -51,32 +54,258 @@ export const VoiceControls = ({
   };
 
   const startRecognition = () => {
-    if (!recognitionRef.current || recognitionState !== 'stopped') {
+    if (!recognitionRef.current || recognitionState !== 'stopped' || isManualStopRef.current) {
       return;
     }
 
     try {
       console.log('Starting speech recognition...');
       setRecognitionState('starting');
+      clearRestartTimeout();
       recognitionRef.current.start();
     } catch (error) {
-      console.log('Failed to start recognition:', error);
+      console.error('Failed to start recognition:', error);
       setRecognitionState('stopped');
-      // Retry after a delay
-      restartTimeoutRef.current = setTimeout(() => {
-        if (recognitionState === 'stopped') {
-          startRecognition();
-        }
-      }, 2000);
+      
+      // Retry with exponential backoff
+      if (!isManualStopRef.current) {
+        restartTimeoutRef.current = setTimeout(() => {
+          if (recognitionState === 'stopped' && !isManualStopRef.current) {
+            startRecognition();
+          }
+        }, 3000);
+      }
     }
   };
 
   const stopRecognition = () => {
+    isManualStopRef.current = true;
     clearRestartTimeout();
+    
     if (recognitionRef.current && recognitionState !== 'stopped') {
       console.log('Stopping speech recognition...');
       recognitionRef.current.stop();
     }
+    
+    setRecognitionState('stopped');
+    onListeningChange(false);
+  };
+
+  const processVoiceCommand = (command: string) => {
+    console.log('Raw command received:', command);
+    
+    // Prevent duplicate processing
+    if (command === lastProcessedTranscriptRef.current) {
+      console.log('Duplicate command ignored');
+      return;
+    }
+    lastProcessedTranscriptRef.current = command;
+    
+    setLastCommand(command);
+    setIsProcessingCommand(true);
+    
+    // Normalize the command
+    const normalizedCommand = command
+      .toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    console.log('Normalized command:', normalizedCommand);
+
+    // Enhanced wake word detection with variations
+    const wakePatterns = [
+      /\b(hey\s+)?vision\b/,
+      /\bdivision\b/,
+      /\brevision\b/,
+      /\bhey\s+google\b/,
+      /\bhey\s+siri\b/,
+      /\bvision\s+guide\b/
+    ];
+
+    const hasWakeWord = wakePatterns.some(pattern => pattern.test(normalizedCommand));
+
+    if (!hasWakeWord) {
+      console.log('No wake word detected');
+      setIsProcessingCommand(false);
+      return;
+    }
+
+    // Extract command after removing wake words
+    let cleanCommand = normalizedCommand;
+    wakePatterns.forEach(pattern => {
+      cleanCommand = cleanCommand.replace(pattern, '').trim();
+    });
+
+    console.log('Clean command after wake word removal:', cleanCommand);
+
+    // Process commands with better pattern matching
+    if (processMainCommands(cleanCommand)) {
+      return;
+    }
+
+    if (processModeSpecificCommands(cleanCommand)) {
+      return;
+    }
+
+    if (processGeneralCommands(cleanCommand)) {
+      return;
+    }
+
+    // If no command matched
+    speak(`I heard you say: ${cleanCommand}. Try saying hey vision help to hear available commands.`);
+    setIsProcessingCommand(false);
+  };
+
+  const processMainCommands = (command: string): boolean => {
+    const modeCommands = [
+      { patterns: [/camera/, /vision/, /see/, /look/, /watch/, /detect/, /view/], mode: 'camera' },
+      { patterns: [/navigat/, /walk/, /direction/, /guide/, /move/, /go/], mode: 'navigation' },
+      { patterns: [/emergency/, /help/, /urgent/, /danger/, /call/], mode: 'emergency' },
+      { patterns: [/setting/, /preference/, /configure/, /setup/, /adjust/], mode: 'settings' }
+    ];
+
+    for (const modeCmd of modeCommands) {
+      if (modeCmd.patterns.some(pattern => pattern.test(command))) {
+        onVoiceCommand(modeCmd.mode);
+        setIsProcessingCommand(false);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const processModeSpecificCommands = (command: string): boolean => {
+    // Camera commands
+    if (currentMode === 'camera') {
+      if (/start|activate|turn\s+on|begin|open|on/.test(command)) {
+        onCameraAction('start');
+        speak('Starting camera for object detection');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/stop|close|turn\s+off|end|deactivate|off/.test(command)) {
+        onCameraAction('stop');
+        speak('Stopping camera');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/analyze|describe|what\s+do\s+you\s+see|scan|check|tell\s+me/.test(command)) {
+        onCameraAction('analyze');
+        speak('Analyzing your surroundings now');
+        setIsProcessingCommand(false);
+        return true;
+      }
+    }
+
+    // Navigation commands
+    if (currentMode === 'navigation') {
+      if (/start|begin|activate|turn\s+on/.test(command)) {
+        onNavigationAction('start');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/next|continue|forward|proceed|step/.test(command)) {
+        onNavigationAction('next');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/repeat|again|say\s+again|once\s+more/.test(command)) {
+        onNavigationAction('repeat');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/stop|end|finish|quit/.test(command)) {
+        onNavigationAction('stop');
+        setIsProcessingCommand(false);
+        return true;
+      }
+    }
+
+    // Emergency commands
+    if (currentMode === 'emergency') {
+      if (/call\s+emergency|nine\s+one\s+one|911|dial\s+emergency/.test(command)) {
+        onEmergencyAction('call-911');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/call\s+family|family\s+contact|family\s+member/.test(command)) {
+        onEmergencyAction('call-family');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/call\s+friend|trusted\s+friend|friend\s+contact/.test(command)) {
+        onEmergencyAction('call-friend');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/share\s+location|send\s+location|location/.test(command)) {
+        onEmergencyAction('share-location');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/send\s+help|help\s+message|distress/.test(command)) {
+        onEmergencyAction('send-help');
+        setIsProcessingCommand(false);
+        return true;
+      }
+    }
+
+    // Settings commands
+    if (currentMode === 'settings') {
+      if (/faster|speed\s+up|quick|rapid|speech\s+faster/.test(command)) {
+        onSettingsChange('speechRate', 'increase');
+        speak('Speech rate increased');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/slower|slow\s+down|gentle|calm|speech\s+slower/.test(command)) {
+        onSettingsChange('speechRate', 'decrease');
+        speak('Speech rate decreased');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/louder|volume\s+up|increase\s+volume/.test(command)) {
+        onSettingsChange('speechVolume', 'increase');
+        speak('Volume increased');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/quieter|volume\s+down|decrease\s+volume/.test(command)) {
+        onSettingsChange('speechVolume', 'decrease');
+        speak('Volume decreased');
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/test|try|sample/.test(command)) {
+        onSettingsChange('test', true);
+        setIsProcessingCommand(false);
+        return true;
+      }
+      if (/reset|default|original/.test(command)) {
+        onSettingsChange('reset', true);
+        setIsProcessingCommand(false);
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const processGeneralCommands = (command: string): boolean => {
+    if (/status|where\s+am\s+i|current\s+mode|what\s+mode/.test(command)) {
+      speak(`You are currently in ${currentMode} mode. Say hey vision followed by camera, navigate, emergency, or settings to switch modes.`);
+      setIsProcessingCommand(false);
+      return true;
+    }
+
+    if (/help|commands|what\s+can\s+you\s+do|instructions/.test(command)) {
+      speak('Say hey vision followed by: camera for object detection, navigate for walking guidance, emergency for help, or settings for preferences. You can also say status to check current mode.');
+      setIsProcessingCommand(false);
+      return true;
+    }
+
+    return false;
   };
 
   useEffect(() => {
@@ -84,17 +313,18 @@ export const VoiceControls = ({
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       const recognitionInstance = new SpeechRecognition();
       
-      // Enhanced speech recognition settings
+      // Optimized settings for better recognition
       recognitionInstance.continuous = true;
       recognitionInstance.interimResults = true;
       recognitionInstance.lang = 'en-US';
-      recognitionInstance.maxAlternatives = 1;
+      recognitionInstance.maxAlternatives = 3;
       
       recognitionInstance.onstart = () => {
         console.log('Speech recognition started');
         setRecognitionState('running');
         onListeningChange(true);
         setTranscript('');
+        isManualStopRef.current = false;
       };
 
       recognitionInstance.onend = () => {
@@ -102,13 +332,13 @@ export const VoiceControls = ({
         setRecognitionState('stopped');
         onListeningChange(false);
         
-        // Auto-restart after a delay if not processing a command
-        if (!isProcessingCommand) {
+        // Auto-restart if not manually stopped and not processing
+        if (!isManualStopRef.current && !isProcessingCommand) {
           restartTimeoutRef.current = setTimeout(() => {
-            if (recognitionState === 'stopped' && !isProcessingCommand) {
+            if (!isManualStopRef.current && recognitionState === 'stopped') {
               startRecognition();
             }
-          }, 1500);
+          }, 1000);
         }
       };
 
@@ -119,11 +349,11 @@ export const VoiceControls = ({
 
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
-          const confidence = event.results[i][0].confidence || 0.8;
+          const confidence = event.results[i][0].confidence || 0.7;
           
           if (event.results[i].isFinal) {
             finalTranscript += transcript;
-            bestConfidence = confidence;
+            bestConfidence = Math.max(bestConfidence, confidence);
           } else {
             interimTranscript += transcript;
           }
@@ -133,51 +363,56 @@ export const VoiceControls = ({
         setTranscript(displayTranscript);
         setConfidence(bestConfidence);
 
-        // Process final transcript with lower confidence threshold
-        if (finalTranscript && bestConfidence > 0.2) {
+        // Process final transcript with adjusted confidence threshold
+        if (finalTranscript.trim() && bestConfidence > 0.1) {
           console.log('Processing final command:', finalTranscript, 'Confidence:', bestConfidence);
-          setIsProcessingCommand(true);
-          processVoiceCommand(finalTranscript.toLowerCase().trim());
+          processVoiceCommand(finalTranscript.trim());
           
-          // Clear transcript and reset processing after delay
+          // Clear transcript after processing
           setTimeout(() => {
             setTranscript('');
             setIsProcessingCommand(false);
-          }, 2000);
+            lastProcessedTranscriptRef.current = '';
+          }, 3000);
         }
       };
 
       recognitionInstance.onerror = (event: any) => {
         console.log('Speech recognition error:', event.error);
-        setRecognitionState('stopped');
-        onListeningChange(false);
         
-        // Don't restart on abort errors to prevent loops
         if (event.error === 'aborted') {
-          console.log('Recognition aborted, not restarting');
+          console.log('Recognition aborted, stopping restart cycle');
           return;
         }
+        
+        setRecognitionState('stopped');
+        onListeningChange(false);
         
         if (event.error === 'no-speech') {
           console.log('No speech detected, continuing...');
         } else if (event.error === 'network') {
           speak('Network error. Voice recognition temporarily unavailable.');
+        } else if (event.error === 'not-allowed') {
+          speak('Microphone access denied. Please allow microphone permissions.');
+          isManualStopRef.current = true;
+          return;
         }
         
-        // Restart recognition after other errors with longer delay
-        clearRestartTimeout();
-        restartTimeoutRef.current = setTimeout(() => {
-          if (!isProcessingCommand && recognitionState === 'stopped') {
-            startRecognition();
-          }
-        }, 3000);
+        // Restart with longer delay for errors
+        if (!isManualStopRef.current) {
+          clearRestartTimeout();
+          restartTimeoutRef.current = setTimeout(() => {
+            if (!isManualStopRef.current && recognitionState === 'stopped') {
+              startRecognition();
+            }
+          }, 2000);
+        }
       };
 
       recognitionRef.current = recognitionInstance;
-      setRecognition(recognitionInstance);
       
-      // Auto-start recognition
-      startRecognition();
+      // Start recognition immediately
+      setTimeout(startRecognition, 500);
     } else {
       console.log('Speech recognition not supported');
       speak('Voice recognition is not supported in this browser or device.');
@@ -186,191 +421,32 @@ export const VoiceControls = ({
     return () => {
       clearRestartTimeout();
       if (recognitionRef.current) {
+        isManualStopRef.current = true;
         recognitionRef.current.stop();
       }
     };
   }, []);
 
-  // Update recognition state when processing changes
+  // Reset processing state when command processing is complete
   useEffect(() => {
-    if (!isProcessingCommand && recognitionState === 'stopped') {
+    if (!isProcessingCommand && recognitionState === 'stopped' && !isManualStopRef.current) {
       const timeout = setTimeout(() => {
-        startRecognition();
-      }, 1000);
+        if (!isManualStopRef.current) {
+          startRecognition();
+        }
+      }, 500);
       return () => clearTimeout(timeout);
     }
   }, [isProcessingCommand, recognitionState]);
 
-  const processVoiceCommand = (command: string) => {
-    console.log('Processing command:', command);
-    
-    // Normalize the command text
-    const normalizedCommand = command
-      .toLowerCase()
-      .replace(/[^\w\s]/g, '') // Remove punctuation
-      .replace(/\s+/g, ' ') // Normalize spaces
-      .trim();
-
-    // More flexible wake word detection
-    const wakeWords = ['hey vision', 'vision', 'hey google', 'hey siri', 'division', 'revision'];
-    const hasWakeWord = wakeWords.some(wake => normalizedCommand.includes(wake));
-
-    if (!hasWakeWord) {
-      console.log('No wake word detected in:', normalizedCommand);
-      return;
-    }
-
-    // Extract command after wake word - remove all wake words
-    let cleanCommand = normalizedCommand;
-    wakeWords.forEach(wake => {
-      cleanCommand = cleanCommand.replace(new RegExp(wake, 'g'), '');
-    });
-    cleanCommand = cleanCommand.trim();
-
-    console.log('Clean command:', cleanCommand);
-
-    // Mode switching with more flexible matching
-    if (cleanCommand.match(/camera|vision|see|look|watch|detect|view/)) {
-      onVoiceCommand('camera');
-      return;
-    }
-    
-    if (cleanCommand.match(/navigate|walk|direction|guide|move|go|navigation/)) {
-      onVoiceCommand('navigation');
-      return;
-    }
-    
-    if (cleanCommand.match(/emergency|help|urgent|danger|call|emergency/)) {
-      onVoiceCommand('emergency');
-      return;
-    }
-    
-    if (cleanCommand.match(/settings|preferences|configure|setup|adjust|setting/)) {
-      onVoiceCommand('settings');
-      return;
-    }
-
-    // Camera mode commands
-    if (currentMode === 'camera') {
-      if (cleanCommand.match(/start|activate|turn on|begin|open|on/)) {
-        onCameraAction('start');
-        speak('Starting camera for object detection');
-        return;
-      }
-      if (cleanCommand.match(/stop|close|turn off|end|deactivate|off/)) {
-        onCameraAction('stop');
-        speak('Stopping camera');
-        return;
-      }
-      if (cleanCommand.match(/analyze|describe|what do you see|scan|check|tell me/)) {
-        onCameraAction('analyze');
-        speak('Analyzing your surroundings now');
-        return;
-      }
-    }
-
-    // Navigation mode commands
-    if (currentMode === 'navigation') {
-      if (cleanCommand.match(/start|begin|activate|turn on|navigation/)) {
-        onNavigationAction('start');
-        return;
-      }
-      if (cleanCommand.match(/next|continue|forward|proceed|step/)) {
-        onNavigationAction('next');
-        return;
-      }
-      if (cleanCommand.match(/repeat|again|say again|once more/)) {
-        onNavigationAction('repeat');
-        return;
-      }
-      if (cleanCommand.match(/stop|end|finish|quit/)) {
-        onNavigationAction('stop');
-        return;
-      }
-    }
-
-    // Emergency mode commands
-    if (currentMode === 'emergency') {
-      if (cleanCommand.match(/call emergency|nine one one|911|dial emergency/)) {
-        onEmergencyAction('call-911');
-        return;
-      }
-      if (cleanCommand.match(/call family|family contact|family member/)) {
-        onEmergencyAction('call-family');
-        return;
-      }
-      if (cleanCommand.match(/call friend|trusted friend|friend contact/)) {
-        onEmergencyAction('call-friend');
-        return;
-      }
-      if (cleanCommand.match(/share location|send location|location/)) {
-        onEmergencyAction('share-location');
-        return;
-      }
-      if (cleanCommand.match(/send help|help message|distress/)) {
-        onEmergencyAction('send-help');
-        return;
-      }
-    }
-
-    // Settings mode commands
-    if (currentMode === 'settings') {
-      if (cleanCommand.match(/faster|speed up|quick|rapid/)) {
-        onSettingsChange('speechRate', 'increase');
-        speak('Speech rate increased');
-        return;
-      }
-      if (cleanCommand.match(/slower|slow down|gentle|calm/)) {
-        onSettingsChange('speechRate', 'decrease');
-        speak('Speech rate decreased');
-        return;
-      }
-      if (cleanCommand.match(/louder|volume up|increase volume/)) {
-        onSettingsChange('speechVolume', 'increase');
-        speak('Volume increased');
-        return;
-      }
-      if (cleanCommand.match(/quieter|volume down|decrease volume/)) {
-        onSettingsChange('speechVolume', 'decrease');
-        speak('Volume decreased');
-        return;
-      }
-      if (cleanCommand.match(/test|try|sample/)) {
-        onSettingsChange('test', true);
-        return;
-      }
-      if (cleanCommand.match(/reset|default|original/)) {
-        onSettingsChange('reset', true);
-        return;
-      }
-    }
-
-    // General commands
-    if (cleanCommand.match(/status|where am i|current mode|what mode/)) {
-      speak(`You are currently in ${currentMode} mode. Say hey vision followed by camera, navigate, emergency, or settings to switch modes.`);
-      return;
-    }
-
-    if (cleanCommand.match(/help|commands|what can you do|instructions/)) {
-      speak('Say hey vision followed by: camera for object detection, navigate for walking guidance, emergency for help, or settings for preferences. You can also say status to check current mode.');
-      return;
-    }
-
-    // If no command matched, provide helpful feedback
-    speak(`I heard you say: ${cleanCommand}. Try saying hey vision help to hear available commands, or hey vision camera to start object detection.`);
-  };
-
   const toggleListening = () => {
-    if (!recognition) {
-      speak('Voice recognition is not supported in this browser or device.');
-      return;
-    }
-
     if (recognitionState === 'running') {
       stopRecognition();
-      setIsProcessingCommand(false);
-    } else if (recognitionState === 'stopped') {
+      speak('Voice recognition stopped');
+    } else {
+      isManualStopRef.current = false;
       startRecognition();
+      speak('Voice recognition started. Say hey vision followed by your command');
     }
   };
 
@@ -420,6 +496,25 @@ export const VoiceControls = ({
                 Confidence: {Math.round(confidence * 100)}%
               </span>
             )}
+          </p>
+        </div>
+      )}
+
+      {/* Last Command */}
+      {lastCommand && (
+        <div className="bg-green-500/20 border-green-400/30 rounded-lg p-3 mb-4">
+          <p className="text-white text-center">
+            <span className="text-green-200 text-sm">Last Command: </span>
+            "{lastCommand}"
+          </p>
+        </div>
+      )}
+
+      {/* Processing Indicator */}
+      {isProcessingCommand && (
+        <div className="bg-yellow-500/20 border-yellow-400/30 rounded-lg p-3 mb-4">
+          <p className="text-yellow-200 text-center">
+            Processing command...
           </p>
         </div>
       )}
