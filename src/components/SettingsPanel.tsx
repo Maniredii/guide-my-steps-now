@@ -1,287 +1,235 @@
 
-import { useState, useEffect } from 'react';
-import { Volume2, VolumeX, Settings, User, Smartphone, Accessibility } from 'lucide-react';
+import { useState } from 'react';
+import { Settings, Volume2, Gauge, TestTube, RotateCcw, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 
-interface SettingsPanelProps {
-  speak: (text: string) => void;
+interface VoiceSettings {
+  rate: number;
+  pitch: number;
+  volume: number;
+  enabled: boolean;
 }
 
-export const SettingsPanel = ({ speak }: SettingsPanelProps) => {
-  const [speechRate, setSpeechRate] = useState([0.8]);
-  const [speechPitch, setSpeechPitch] = useState([1]);
-  const [speechVolume, setSpeechVolume] = useState([1]);
-  const [voiceEnabled, setVoiceEnabled] = useState(true);
-  const [selectedVoice, setSelectedVoice] = useState<string>('');
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+interface SettingsPanelProps {
+  speak: (text: string) => void;
+  voiceSettings: VoiceSettings;
+  onVoiceSettingsChange: (settings: VoiceSettings) => void;
+}
 
-  useEffect(() => {
-    // Get available voices
-    const loadVoices = () => {
-      const voices = window.speechSynthesis.getVoices();
-      setAvailableVoices(voices);
-      if (voices.length > 0 && !selectedVoice) {
-        setSelectedVoice(voices[0].name);
-      }
-    };
+export const SettingsPanel = ({ speak, voiceSettings, onVoiceSettingsChange }: SettingsPanelProps) => {
+  const [testMessage] = useState("This is a test of your voice settings. You can adjust the speech rate, pitch, and volume to your preference.");
 
-    loadVoices();
-    window.speechSynthesis.onvoiceschanged = loadVoices;
-  }, [selectedVoice]);
-
-  const testSpeech = () => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(
-        'This is a test of your voice settings. The speech rate, pitch, and volume have been adjusted according to your preferences.'
-      );
-      
-      utterance.rate = speechRate[0];
-      utterance.pitch = speechPitch[0];
-      utterance.volume = speechVolume[0];
-      
-      if (selectedVoice) {
-        const voice = availableVoices.find(v => v.name === selectedVoice);
-        if (voice) utterance.voice = voice;
-      }
-      
-      window.speechSynthesis.speak(utterance);
+  const updateSetting = (setting: keyof VoiceSettings, value: number | boolean) => {
+    const newSettings = { ...voiceSettings, [setting]: value };
+    onVoiceSettingsChange(newSettings);
+    
+    // Provide immediate feedback
+    if (setting === 'rate') {
+      speak(`Speech rate set to ${Math.round(value as number * 100)} percent`);
+    } else if (setting === 'volume') {
+      speak(`Volume set to ${Math.round(value as number * 100)} percent`);
+    } else if (setting === 'pitch') {
+      speak(`Speech pitch adjusted`);
     }
   };
 
-  const toggleVoice = () => {
-    const newState = !voiceEnabled;
-    setVoiceEnabled(newState);
-    if (newState) {
-      speak('Voice feedback enabled');
-    } else {
-      // One last announcement before disabling
-      speak('Voice feedback disabled');
-    }
+  const testVoiceSettings = () => {
+    speak(testMessage);
   };
 
-  const resetSettings = () => {
-    setSpeechRate([0.8]);
-    setSpeechPitch([1]);
-    setSpeechVolume([1]);
-    setVoiceEnabled(true);
-    speak('Settings reset to default values');
+  const resetToDefaults = () => {
+    const defaultSettings = { rate: 0.8, pitch: 1, volume: 1, enabled: true };
+    onVoiceSettingsChange(defaultSettings);
+    speak("Voice settings reset to default values");
   };
 
-  const accessibilityFeatures = [
-    {
-      title: 'High Contrast Mode',
-      description: 'Increase visual contrast for better visibility',
-      enabled: true
-    },
-    {
-      title: 'Large Text Mode',
-      description: 'Increase text size throughout the app',
-      enabled: false
-    },
-    {
-      title: 'Vibration Feedback',
-      description: 'Feel vibrations for important notifications',
-      enabled: true
-    },
-    {
-      title: 'Screen Reader Support',
-      description: 'Enhanced compatibility with screen readers',
-      enabled: true
-    }
-  ];
+  const increaseSpeechRate = () => {
+    const newRate = Math.min(voiceSettings.rate + 0.1, 2);
+    updateSetting('rate', newRate);
+  };
+
+  const decreaseSpeechRate = () => {
+    const newRate = Math.max(voiceSettings.rate - 0.1, 0.1);
+    updateSetting('rate', newRate);
+  };
+
+  const increaseVolume = () => {
+    const newVolume = Math.min(voiceSettings.volume + 0.1, 1);
+    updateSetting('volume', newVolume);
+  };
+
+  const decreaseVolume = () => {
+    const newVolume = Math.max(voiceSettings.volume - 0.1, 0.1);
+    updateSetting('volume', newVolume);
+  };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-white mb-2">App Settings</h2>
-        <p className="text-gray-300">Customize your accessibility preferences</p>
+        <h2 className="text-2xl font-bold text-white mb-2">Voice & Accessibility Settings</h2>
+        <p className="text-gray-300">Customize your experience with voice commands</p>
       </div>
 
       {/* Voice Settings */}
       <Card className="bg-white/10 border-white/20 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Volume2 className="w-6 h-6 text-blue-400" />
-          <h3 className="text-xl font-semibold text-white">Voice Settings</h3>
-        </div>
+        <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
+          <Volume2 className="w-6 h-6" />
+          Voice Settings
+        </h3>
 
-        {/* Voice On/Off */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <label className="text-white font-medium">Voice Feedback</label>
-            <Button
-              onClick={toggleVoice}
-              className={`${
-                voiceEnabled 
-                  ? 'bg-green-500 hover:bg-green-600' 
-                  : 'bg-gray-500 hover:bg-gray-600'
-              } text-white px-4 py-2`}
-              onFocus={() => speak(voiceEnabled ? 'Voice feedback is on' : 'Voice feedback is off')}
-            >
-              {voiceEnabled ? <Volume2 className="w-4 h-4 mr-2" /> : <VolumeX className="w-4 h-4 mr-2" />}
-              {voiceEnabled ? 'Enabled' : 'Disabled'}
-            </Button>
-          </div>
-        </div>
-
-        {voiceEnabled && (
-          <>
-            {/* Speech Rate */}
-            <div className="mb-6">
-              <label className="text-white font-medium mb-2 block">
-                Speech Rate: {speechRate[0].toFixed(1)}x
-              </label>
-              <Slider
-                value={speechRate}
-                onValueChange={setSpeechRate}
-                max={2}
-                min={0.1}
-                step={0.1}
-                className="w-full"
-                onFocus={() => speak('Adjust speech rate')}
-              />
-              <div className="flex justify-between text-gray-400 text-sm mt-1">
-                <span>Slow</span>
-                <span>Fast</span>
-              </div>
-            </div>
-
-            {/* Speech Pitch */}
-            <div className="mb-6">
-              <label className="text-white font-medium mb-2 block">
-                Speech Pitch: {speechPitch[0].toFixed(1)}
-              </label>
-              <Slider
-                value={speechPitch}
-                onValueChange={setSpeechPitch}
-                max={2}
-                min={0.1}
-                step={0.1}
-                className="w-full"
-                onFocus={() => speak('Adjust speech pitch')}
-              />
-              <div className="flex justify-between text-gray-400 text-sm mt-1">
-                <span>Low</span>
-                <span>High</span>
-              </div>
-            </div>
-
-            {/* Speech Volume */}
-            <div className="mb-6">
-              <label className="text-white font-medium mb-2 block">
-                Speech Volume: {Math.round(speechVolume[0] * 100)}%
-              </label>
-              <Slider
-                value={speechVolume}
-                onValueChange={setSpeechVolume}
-                max={1}
-                min={0.1}
-                step={0.1}
-                className="w-full"
-                onFocus={() => speak('Adjust speech volume')}
-              />
-              <div className="flex justify-between text-gray-400 text-sm mt-1">
-                <span>Quiet</span>
-                <span>Loud</span>
-              </div>
-            </div>
-
-            {/* Voice Selection */}
-            {availableVoices.length > 0 && (
-              <div className="mb-6">
-                <label className="text-white font-medium mb-2 block">Voice Selection</label>
-                <select
-                  value={selectedVoice}
-                  onChange={(e) => setSelectedVoice(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white"
-                  onFocus={() => speak('Select voice')}
-                >
-                  {availableVoices.map((voice) => (
-                    <option key={voice.name} value={voice.name} className="bg-gray-800">
-                      {voice.name} ({voice.lang})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Test Speech Button */}
-            <Button
-              onClick={testSpeech}
-              className="bg-blue-500 hover:bg-blue-600 text-white w-full mb-4"
-            >
-              <Volume2 className="w-4 h-4 mr-2" />
-              Test Voice Settings
-            </Button>
-          </>
-        )}
-      </Card>
-
-      {/* Accessibility Features */}
-      <Card className="bg-white/10 border-white/20 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Accessibility className="w-6 h-6 text-green-400" />
-          <h3 className="text-xl font-semibold text-white">Accessibility Features</h3>
-        </div>
-
-        <div className="space-y-4">
-          {accessibilityFeatures.map((feature, index) => (
-            <div key={index} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
-              <div>
-                <div className="text-white font-medium">{feature.title}</div>
-                <div className="text-gray-300 text-sm">{feature.description}</div>
-              </div>
+        {/* Speech Rate */}
+        <div className="space-y-4 mb-6">
+          <div>
+            <label className="text-white font-medium block mb-2">
+              Speech Rate: {Math.round(voiceSettings.rate * 100)}%
+            </label>
+            <Slider
+              value={[voiceSettings.rate]}
+              onValueChange={(value) => updateSetting('rate', value[0])}
+              min={0.1}
+              max={2}
+              step={0.1}
+              className="w-full"
+            />
+            <div className="flex gap-2 mt-2">
               <Button
-                className={`${
-                  feature.enabled 
-                    ? 'bg-green-500 hover:bg-green-600' 
-                    : 'bg-gray-500 hover:bg-gray-600'
-                } text-white px-3 py-1 text-sm`}
-                onFocus={() => speak(`${feature.title} is ${feature.enabled ? 'enabled' : 'disabled'}`)}
+                onClick={decreaseSpeechRate}
+                className="bg-blue-500 hover:bg-blue-600 text-white text-sm"
+                onFocus={() => speak('Decrease speech rate')}
               >
-                {feature.enabled ? 'On' : 'Off'}
+                Slower
+              </Button>
+              <Button
+                onClick={increaseSpeechRate}
+                className="bg-blue-500 hover:bg-blue-600 text-white text-sm"
+                onFocus={() => speak('Increase speech rate')}
+              >
+                Faster
               </Button>
             </div>
-          ))}
+          </div>
+
+          {/* Volume */}
+          <div>
+            <label className="text-white font-medium block mb-2">
+              Volume: {Math.round(voiceSettings.volume * 100)}%
+            </label>
+            <Slider
+              value={[voiceSettings.volume]}
+              onValueChange={(value) => updateSetting('volume', value[0])}
+              min={0.1}
+              max={1}
+              step={0.1}
+              className="w-full"
+            />
+            <div className="flex gap-2 mt-2">
+              <Button
+                onClick={decreaseVolume}
+                className="bg-green-500 hover:bg-green-600 text-white text-sm"
+                onFocus={() => speak('Decrease volume')}
+              >
+                Quieter
+              </Button>
+              <Button
+                onClick={increaseVolume}
+                className="bg-green-500 hover:bg-green-600 text-white text-sm"
+                onFocus={() => speak('Increase volume')}
+              >
+                Louder
+              </Button>
+            </div>
+          </div>
+
+          {/* Pitch */}
+          <div>
+            <label className="text-white font-medium block mb-2">
+              Speech Pitch: {voiceSettings.pitch.toFixed(1)}
+            </label>
+            <Slider
+              value={[voiceSettings.pitch]}
+              onValueChange={(value) => updateSetting('pitch', value[0])}
+              min={0.5}
+              max={2}
+              step={0.1}
+              className="w-full"
+            />
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex gap-4">
+          <Button
+            onClick={testVoiceSettings}
+            className="bg-purple-500 hover:bg-purple-600 text-white flex-1"
+            onFocus={() => speak('Test voice settings')}
+          >
+            <TestTube className="w-4 h-4 mr-2" />
+            Test Voice
+          </Button>
+          <Button
+            onClick={resetToDefaults}
+            className="bg-orange-500 hover:bg-orange-600 text-white flex-1"
+            onFocus={() => speak('Reset to default settings')}
+          >
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset Defaults
+          </Button>
         </div>
       </Card>
 
-      {/* App Information */}
-      <Card className="bg-white/10 border-white/20 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <Smartphone className="w-6 h-6 text-purple-400" />
-          <h3 className="text-xl font-semibold text-white">App Information</h3>
+      {/* Voice Commands for Settings */}
+      <Card className="bg-green-500/20 border-green-400/30 p-4">
+        <h3 className="text-lg font-semibold text-green-200 mb-3">Settings Voice Commands:</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-green-100">
+          <div>"Hey Vision Speech Faster" - Increase speech rate</div>
+          <div>"Hey Vision Speech Slower" - Decrease speech rate</div>
+          <div>"Hey Vision Volume Up" - Increase volume</div>
+          <div>"Hey Vision Volume Down" - Decrease volume</div>
+          <div>"Hey Vision Test Voice" - Test current settings</div>
+          <div>"Hey Vision Reset Settings" - Restore defaults</div>
         </div>
+      </Card>
 
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-300">Version:</span>
-            <span className="text-white">1.0.0</span>
+      {/* Accessibility Information */}
+      <Card className="bg-blue-500/20 border-blue-400/30 p-4">
+        <h3 className="text-lg font-semibold text-blue-200 mb-3">Accessibility Features:</h3>
+        <div className="space-y-2 text-blue-100">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span>Full voice control - no screen interaction required</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-300">Build:</span>
-            <span className="text-white">2024.01.15</span>
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span>Continuous voice recognition</span>
           </div>
-          <div className="flex justify-between">
-            <span className="text-gray-300">Platform:</span>
-            <span className="text-white">Web App</span>
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span>Adjustable speech rate and volume</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span>Audio feedback for all actions</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-green-400" />
+            <span>Emergency assistance integration</span>
           </div>
         </div>
       </Card>
 
-      {/* Reset Settings */}
-      <div className="flex justify-center">
-        <Button
-          onClick={resetSettings}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-3"
-          onFocus={() => speak('Reset all settings to default')}
-        >
-          <Settings className="w-5 h-5 mr-2" />
-          Reset to Defaults
-        </Button>
-      </div>
+      {/* Instructions */}
+      <Card className="bg-yellow-500/20 border-yellow-400/30 p-4">
+        <h3 className="text-lg font-semibold text-yellow-200 mb-3">How to Use Settings:</h3>
+        <ul className="text-yellow-100 space-y-1 text-sm">
+          <li>• Use voice commands starting with "Hey Vision" to adjust settings</li>
+          <li>• Test your voice settings regularly to ensure comfortable listening</li>
+          <li>• Adjust speech rate based on your preference and comprehension</li>
+          <li>• Set volume appropriate for your environment</li>
+          <li>• Reset to defaults if settings become uncomfortable</li>
+        </ul>
+      </Card>
     </div>
   );
 };

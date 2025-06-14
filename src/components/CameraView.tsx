@@ -9,10 +9,11 @@ interface CameraViewProps {
   speak: (text: string) => void;
   detectedObjects: string[];
   onDetectedObjects: (objects: string[]) => void;
+  isActive: boolean;
+  onActiveChange: (active: boolean) => void;
 }
 
-export const CameraView = ({ speak, detectedObjects, onDetectedObjects }: CameraViewProps) => {
-  const [isActive, setIsActive] = useState(false);
+export const CameraView = ({ speak, detectedObjects, onDetectedObjects, isActive, onActiveChange }: CameraViewProps) => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [lastDescription, setLastDescription] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -78,7 +79,7 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects }: Camera
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
-      setIsActive(true);
+      onActiveChange(true);
       speak('Camera activated. I will analyze your surroundings every few seconds.');
       
       // Start periodic scene analysis
@@ -100,9 +101,17 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects }: Camera
       stream.getTracks().forEach(track => track.stop());
       setStream(null);
     }
-    setIsActive(false);
+    onActiveChange(false);
     speak('Camera stopped.');
   };
+
+  useEffect(() => {
+    if (isActive && !stream) {
+      startCamera();
+    } else if (!isActive && stream) {
+      stopCamera();
+    }
+  }, [isActive]);
 
   useEffect(() => {
     return () => {
@@ -116,7 +125,7 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects }: Camera
     <div className="space-y-6">
       <div className="text-center">
         <h2 className="text-2xl font-bold text-white mb-2">Smart Vision Assistant</h2>
-        <p className="text-gray-300">I'll describe what I see to help you navigate safely</p>
+        <p className="text-gray-300">Say "Hey Vision Start Camera" or "Hey Vision Analyze" to use voice commands</p>
       </div>
 
       {/* Camera Controls */}
@@ -207,16 +216,15 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects }: Camera
         </Card>
       )}
 
-      {/* Instructions */}
-      <Card className="bg-white/5 border-white/10 p-4">
-        <h3 className="text-lg font-semibold text-white mb-2">How to Use:</h3>
-        <ul className="text-gray-300 space-y-1 text-sm">
-          <li>• Tap "Start Camera" to begin object detection</li>
-          <li>• I'll automatically describe your surroundings every 5 seconds</li>
-          <li>• Tap "Analyze Now" for immediate scene description</li>
-          <li>• Keep your phone steady and pointed forward</li>
-          <li>• I'll warn you about obstacles and hazards</li>
-        </ul>
+      {/* Voice Commands */}
+      <Card className="bg-green-500/20 border-green-400/30 p-4">
+        <h3 className="text-lg font-semibold text-green-200 mb-3">Voice Commands:</h3>
+        <div className="grid grid-cols-1 gap-2 text-sm text-green-100">
+          <div>"Hey Vision Start Camera" - Activate camera</div>
+          <div>"Hey Vision Stop Camera" - Stop camera</div>
+          <div>"Hey Vision Analyze" - Describe surroundings</div>
+          <div>"Hey Vision What Do You See" - Get scene description</div>
+        </div>
       </Card>
     </div>
   );
