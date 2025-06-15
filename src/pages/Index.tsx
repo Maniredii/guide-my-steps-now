@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Camera, Volume2, Navigation, Phone, Settings, Mic, MicOff, Play, Pause } from 'lucide-react';
+import { Camera, Volume2, Navigation, Phone, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
@@ -45,8 +45,16 @@ const Index = () => {
   const selectedLangOption = languageOptions.find(opt => opt.code === ttsLang) || languageOptions[0];
   const ocrLang = selectedLangOption?.tesseract || "eng";
 
-  // Speech synthesis for voice feedback
+  // Speech synthesis for voice feedback (guard: only run if TTS is supported for this language)
   const speak = (text: string) => {
+    const currentLang = languageOptions.find(opt => opt.code === ttsLang);
+    if (!currentLang) return;
+    if (!currentLang.ttsSupported) {
+      toast.error("Text-to-Speech not available!", {
+        description: "Speech output is not available for the selected language on this device. OCR will still work.",
+      });
+      return;
+    }
     if ('speechSynthesis' in window && voiceSettings.enabled) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
@@ -246,8 +254,10 @@ const Index = () => {
                 {opt.ttsSupported && opt.ocrSupported
                   ? " (TTS + OCR)"
                   : opt.ttsSupported
-                  ? " (TTS)"
-                  : " (OCR)"}
+                  ? " (TTS only)"
+                  : opt.ocrSupported
+                  ? " (OCR only)"
+                  : ""}
               </option>
             ))}
           </select>
