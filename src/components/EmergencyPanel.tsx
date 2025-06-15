@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Phone, MessageSquare, MapPin, AlertTriangle, Heart, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -60,13 +59,19 @@ export const EmergencyPanel = ({ speak }: EmergencyPanelProps) => {
   // Helper to get contact phone numbers (except 911, which should not be in SMS lists)
   const getSmsContacts = () =>
     emergencyContacts
-      .filter(c => c.id !== '911')
-      .map(c => c.number.replace(/[^+\d]/g, ''))
-      .join(',');
+      .filter((c) => c.id !== "911")
+      .map((c) => c.number.replace(/[^+\d]/g, ""))
+      .join(",");
 
-  // Opens SMS app with a link to your current location
-  const shareLocation = () => {
-    if (navigator.geolocation) {
+  const shareLocation = async () => {
+    if (!navigator.geolocation) {
+      speak("Location sharing is not supported on this device.");
+      toast.error("Location services not supported.");
+      return;
+    }
+
+    try {
+      speak("Acquiring your current location...");
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
@@ -74,34 +79,45 @@ export const EmergencyPanel = ({ speak }: EmergencyPanelProps) => {
           const smsBody = encodeURIComponent(
             `My current location (from Vision Guide): ${locationUrl}`
           );
-
           const smsRecipients = getSmsContacts();
-          // Works for most mobile browsers: opens SMS app with text and contact(s)
           const smsLink = `sms:${smsRecipients}?&body=${smsBody}`;
 
-          // Speak and provide real-time feedback
-          speak('Sharing your real-time location in an SMS.');
+          speak("Your location is ready. Opening the SMS app. Please review and send your message.");
           toast.success(
-            'Location ready. Sending SMS—please review and send!',
-            { description: 'Your SMS app will open to complete sending.' }
+            "Location acquired. Launching SMS...",
+            { description: "Your SMS app will open to complete sending." }
           );
 
-          if (typeof window !== 'undefined') {
+          if (typeof window !== "undefined") {
             window.location.href = smsLink;
           }
         },
         (error) => {
-          speak('Unable to get location. Please try again.');
-          toast.error('Location access denied');
-        }
+          let msg = "";
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              msg = "Location permission denied. Please enable location access in your device settings.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              msg = "Location unavailable. Please try moving to an area with better GPS signal.";
+              break;
+            case error.TIMEOUT:
+              msg = "Location request timed out. Please try again.";
+              break;
+            default:
+              msg = "Unable to fetch location. Please try again.";
+          }
+          speak(msg);
+          toast.error("Failed to get location", { description: msg });
+        },
+        { timeout: 10000 }
       );
-    } else {
-      speak('Location sharing not available on this device.');
-      toast.error('Location not available');
+    } catch (e) {
+      speak("Unexpected error occurred during location sharing.");
+      toast.error("Unexpected error while getting location.");
     }
   };
 
-  // Opens SMS app with help message, prefilled to contacts (not 911)
   const sendHelpText = () => {
     const helpMessage =
       "I need assistance. This is an automated message from my Vision Guide app. Please contact me or come to my location if possible.";
@@ -109,14 +125,27 @@ export const EmergencyPanel = ({ speak }: EmergencyPanelProps) => {
     const smsRecipients = getSmsContacts();
     const smsLink = `sms:${smsRecipients}?&body=${smsBody}`;
 
-    speak('Preparing your help message. Please review and send the SMS.');
-    toast.success(
-      'Help message ready. Sending SMS—please review and send!',
-      { description: 'Your SMS app will open to complete sending.' }
-    );
+    if (!smsRecipients) {
+      speak("No contacts are available to send the help message.");
+      toast.error("No emergency contacts set up.");
+      return;
+    }
 
-    if (typeof window !== 'undefined') {
-      window.location.href = smsLink;
+    // Some browsers or desktops may not support sms: protocol
+    try {
+      speak("Opening your SMS app with a prefilled help message. Please review and send.");
+      toast.success(
+        "Help message prepared. Launching SMS...",
+        { description: "Your SMS app will open to complete sending." }
+      );
+      if (typeof window !== "undefined") {
+        window.location.href = smsLink;
+      }
+    } catch (e) {
+      speak(
+        "Could not open SMS app. Please try sending your help message manually in case of emergency."
+      );
+      toast.error("Could not launch SMS app. Try manually sending your message.");
     }
   };
 
