@@ -57,6 +57,69 @@ export const EmergencyPanel = ({ speak }: EmergencyPanelProps) => {
     }
   ];
 
+  // Helper to get contact phone numbers (except 911, which should not be in SMS lists)
+  const getSmsContacts = () =>
+    emergencyContacts
+      .filter(c => c.id !== '911')
+      .map(c => c.number.replace(/[^+\d]/g, ''))
+      .join(',');
+
+  // Opens SMS app with a link to your current location
+  const shareLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          const locationUrl = `https://maps.google.com/?q=${latitude},${longitude}`;
+          const smsBody = encodeURIComponent(
+            `My current location (from Vision Guide): ${locationUrl}`
+          );
+
+          const smsRecipients = getSmsContacts();
+          // Works for most mobile browsers: opens SMS app with text and contact(s)
+          const smsLink = `sms:${smsRecipients}?&body=${smsBody}`;
+
+          // Speak and provide real-time feedback
+          speak('Sharing your real-time location in an SMS.');
+          toast.success(
+            'Location ready. Sending SMS—please review and send!',
+            { description: 'Your SMS app will open to complete sending.' }
+          );
+
+          if (typeof window !== 'undefined') {
+            window.location.href = smsLink;
+          }
+        },
+        (error) => {
+          speak('Unable to get location. Please try again.');
+          toast.error('Location access denied');
+        }
+      );
+    } else {
+      speak('Location sharing not available on this device.');
+      toast.error('Location not available');
+    }
+  };
+
+  // Opens SMS app with help message, prefilled to contacts (not 911)
+  const sendHelpText = () => {
+    const helpMessage =
+      "I need assistance. This is an automated message from my Vision Guide app. Please contact me or come to my location if possible.";
+    const smsBody = encodeURIComponent(helpMessage);
+    const smsRecipients = getSmsContacts();
+    const smsLink = `sms:${smsRecipients}?&body=${smsBody}`;
+
+    speak('Preparing your help message. Please review and send the SMS.');
+    toast.success(
+      'Help message ready. Sending SMS—please review and send!',
+      { description: 'Your SMS app will open to complete sending.' }
+    );
+
+    if (typeof window !== 'undefined') {
+      window.location.href = smsLink;
+    }
+  };
+
   const makeCall = (contact: typeof emergencyContacts[0]) => {
     setSelectedContact(contact.id);
     speak(`Calling ${contact.name} at ${contact.number}`);
@@ -74,38 +137,6 @@ export const EmergencyPanel = ({ speak }: EmergencyPanelProps) => {
     if (typeof window !== 'undefined') {
       window.location.href = `tel:${contact.number}`;
     }
-  };
-
-  const shareLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
-          const locationText = `My current location: https://maps.google.com/?q=${latitude},${longitude}`;
-          
-          speak('Location acquired and ready to share');
-          toast.success('Location ready to share');
-          
-          // In a real app, this would send the location via SMS or other means
-          console.log('Location to share:', locationText);
-        },
-        (error) => {
-          speak('Unable to get location. Please try again.');
-          toast.error('Location access denied');
-        }
-      );
-    } else {
-      speak('Location sharing not available on this device.');
-    }
-  };
-
-  const sendHelpText = () => {
-    const helpMessage = "I need assistance. This is an automated message from my Vision Guide app. Please contact me or come to my location.";
-    speak('Help message prepared and ready to send');
-    toast.success('Help message ready to send');
-    
-    // In a real app, this would send SMS to emergency contacts
-    console.log('Help message:', helpMessage);
   };
 
   const cancelEmergency = () => {
