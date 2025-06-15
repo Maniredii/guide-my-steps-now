@@ -305,15 +305,14 @@ export const VoiceControls = ({
       // These hints are browser-specific and may not all be honored,
       // but we offer them for best accuracy
       if ('grammars' in recognitionInstance) {
-        // 'grammars' is not widely supported but let's try to bias for "hey vision", common commands, etc
-        // This code just shows intent; most browsers ignore these hints
+        // Fix: Safely access SpeechGrammarList or webkitSpeechGrammarList with proper TS check
         const SpeechGrammarList =
-          window.SpeechGrammarList ||
+          (window as any).SpeechGrammarList ||
           (window as any).webkitSpeechGrammarList;
         if (SpeechGrammarList) {
           const grammar =
             '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
-          var speechRecognitionList = new SpeechGrammarList();
+          const speechRecognitionList = new SpeechGrammarList();
           speechRecognitionList.addFromString(grammar, 1);
           recognitionInstance.grammars = speechRecognitionList;
         }
