@@ -1,10 +1,11 @@
 
 import { useRef, useEffect, useState } from 'react';
-import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2 } from 'lucide-react';
+import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { useRealTimeObjectDetection } from '@/hooks/useRealTimeObjectDetection';
+import { useYOLODetection } from '@/hooks/useYOLODetection';
+import { DetectionCanvas } from './DetectionCanvas';
 
 interface CameraViewProps {
   speak: (text: string) => void;
@@ -24,44 +25,48 @@ export const CameraView = ({
   const [lastDescription, setLastDescription] = useState('');
   const [stream, setStream] = useState<MediaStream | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Use real object detection
-  const detected = useRealTimeObjectDetection(videoRef, isActive);
+  // Use YOLO object detection
+  const { detections, isLoading } = useYOLODetection(videoRef, isActive);
 
   // When detected objects change, show labels and give spoken description
   useEffect(() => {
-    if (!isActive || detected.length === 0) {
-      if (isActive) {
+    if (!isActive || detections.length === 0) {
+      if (isActive && !isLoading) {
         onDetectedObjects([]);
-        setLastDescription('Nothing recognized confidently at the moment.');
+        setLastDescription('No objects detected at the moment.');
       }
       return;
     }
-    const labels = detected.map(d => d.label).filter(label => !!label);
+
+    const labels = detections.map(d => d.label).slice(0, 5); // Top 5 detections
     onDetectedObjects(labels);
 
     let description = '';
-    if (labels.length) {
-      description = "I can see " + labels.slice(0, 3).map((l, idx) =>
-        idx === 0 ? l : "and " + l
-      ).join(", ") + 
-      '.';
+    if (labels.length > 0) {
+      const uniqueLabels = [...new Set(labels)];
+      description = "I can see " + uniqueLabels.slice(0, 3).join(", ") + ".";
     }
+    
     setLastDescription(description);
     speak(description);
-    // eslint-disable-next-line
-  }, [JSON.stringify(detected), isActive]);
+  }, [detections, isActive, isLoading, onDetectedObjects, speak]);
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          facingMode: 'environment',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
+        } 
+      });
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
       onActiveChange(true);
-      speak('Camera activated. I will analyze what is visible in front of you.');
+      speak('Camera activated. Loading YOLO object detection model...');
     } catch (error) {
       speak('Unable to access camera. Please check permissions.');
       toast.error('Camera access denied');
@@ -83,7 +88,6 @@ export const CameraView = ({
     } else if (!isActive && stream) {
       stopCamera();
     }
-    // eslint-disable-next-line
   }, [isActive]);
 
   useEffect(() => {
@@ -92,15 +96,15 @@ export const CameraView = ({
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-    // eslint-disable-next-line
   }, [stream]);
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-white mb-2">Smart Vision Assistant</h2>
-        <p className="text-gray-300">Say "Hey Vision Start Camera" or "Hey Vision Analyze" to use voice commands</p>
+        <h2 className="text-2xl font-bold text-white mb-2">YOLO Object Detection</h2>
+        <p className="text-gray-300">Advanced real-time object detection using YOLO + OpenCV</p>
       </div>
+
       {/* Camera Controls */}
       <div className="flex justify-center gap-4">
         <Button
@@ -110,28 +114,49 @@ export const CameraView = ({
               ? 'bg-red-500 hover:bg-red-600'
               : 'bg-green-500 hover:bg-green-600'
           } text-white px-8 py-4 text-lg`}
+          disabled={isLoading}
           onFocus={() => speak(isActive ? 'Stop camera' : 'Start camera')}
         >
-          <Camera className="w-6 h-6 mr-2" />
-          {isActive ? 'Stop Camera' : 'Start Camera'}
+          {isLoading ? (
+            <Loader className="w-6 h-6 mr-2 animate-spin" />
+          ) : (
+            <Camera className="w-6 h-6 mr-2" />
+          )}
+          {isLoading ? 'Loading Model...' : isActive ? 'Stop Camera' : 'Start Camera'}
         </Button>
       </div>
 
-      {/* Camera Feed */}
+      {/* Loading Status */}
+      {isLoading && (
+        <Card className="bg-yellow-500/20 border-yellow-400/30 p-4">
+          <div className="flex items-center gap-3">
+            <Loader className="w-5 h-5 animate-spin text-yellow-400" />
+            <div>
+              <h3 className="text-lg font-semibold text-yellow-200">Loading YOLO Model</h3>
+              <p className="text-yellow-100 text-sm">This may take a moment on first load...</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Camera Feed with Detection Overlay */}
       {isActive && (
-        <div className="relative">
+        <div className="relative mx-auto max-w-md">
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className="w-full max-w-md mx-auto rounded-lg border-2 border-white/20"
-            width={320}
-            height={240}
+            className="w-full rounded-lg border-2 border-white/20"
+            width={640}
+            height={480}
           />
-          <canvas
-            ref={canvasRef}
-            className="hidden"
+          
+          {/* Detection Canvas Overlay */}
+          <DetectionCanvas
+            videoRef={videoRef}
+            detections={detections}
+            isActive={isActive && !isLoading}
           />
 
           {/* Live indicator */}
@@ -139,13 +164,20 @@ export const CameraView = ({
             <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
             LIVE
           </div>
+
+          {/* Detection count */}
+          {detections.length > 0 && (
+            <div className="absolute top-4 right-4 bg-green-500 text-white px-3 py-1 rounded-full text-sm font-bold">
+              {detections.length} detected
+            </div>
+          )}
         </div>
       )}
 
       {/* Detected Objects Display */}
       {isActive && detectedObjects.length > 0 && (
         <Card className="bg-white/10 border-white/20 p-4">
-          <h3 className="text-lg font-semibold text-white mb-3">Currently Detected:</h3>
+          <h3 className="text-lg font-semibold text-white mb-3">YOLO Detections:</h3>
           <div className="grid grid-cols-2 gap-2">
             {detectedObjects.map((object, index) => (
               <div
@@ -168,7 +200,7 @@ export const CameraView = ({
       {/* Last Description */}
       {isActive && lastDescription && (
         <Card className="bg-blue-500/20 border-blue-400/30 p-4">
-          <h3 className="text-lg font-semibold text-blue-200 mb-2">Latest Scene Description:</h3>
+          <h3 className="text-lg font-semibold text-blue-200 mb-2">Latest YOLO Detection:</h3>
           <p className="text-white">{lastDescription}</p>
           <Button
             onClick={() => speak(lastDescription)}
@@ -184,10 +216,10 @@ export const CameraView = ({
       <Card className="bg-green-500/20 border-green-400/30 p-4">
         <h3 className="text-lg font-semibold text-green-200 mb-3">Voice Commands:</h3>
         <div className="grid grid-cols-1 gap-2 text-sm text-green-100">
-          <div>"Hey Vision Start Camera" - Activate camera</div>
-          <div>"Hey Vision Stop Camera" - Stop camera</div>
-          <div>"Hey Vision Analyze" - Describe surroundings</div>
-          <div>"Hey Vision What Do You See" - Get scene description</div>
+          <div>"Hey Vision Start Camera" - Activate YOLO detection</div>
+          <div>"Hey Vision Stop Camera" - Stop detection</div>
+          <div>"Hey Vision Analyze" - Get current detections</div>
+          <div>"Hey Vision What Do You See" - Describe scene</div>
         </div>
       </Card>
     </div>
