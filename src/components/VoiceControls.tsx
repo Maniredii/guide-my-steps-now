@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,245 +45,147 @@ export const VoiceControls = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [isSupported, setIsSupported] = useState(false);
-  const [recognitionAccuracy, setRecognitionAccuracy] = useState(0);
+  const [debugInfo, setDebugInfo] = useState<string[]>([]);
 
   const recognitionRef = useRef<any>(null);
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isManualStopRef = useRef(false);
-  const commandHistoryRef = useRef<string[]>([]);
-  const processingRef = useRef(false);
-  const confidenceHistoryRef = useRef<number[]>([]);
+  const lastProcessedRef = useRef<string>('');
 
-  // Enhanced wake word patterns with phonetic variations
+  // Simplified and more reliable wake word patterns
   const wakeWordPatterns = [
-    /\b(hey\s+(vision|division|revision|evision|fusion|lesion))\b/i,
-    /\b(vision\s+(guide|god|good|guy|gide)|guide\s+(vision|division))\b/i,
-    /\b(hey\s+(guide|god|good|guy|gide))\b/i,
-    /\b(voice\s+(control|command)|start\s+(listening|recognition))\b/i,
-    /\b(activate\s+(vision|voice)|enable\s+(voice|vision))\b/i,
+    /\b(hey\s*vision|vision|guide|camera|navigate|emergency|help)\b/i,
+    /\b(start|activate|open|show|begin)\b/i,
   ];
 
-  // Enhanced command patterns with more variations
+  // Simple command patterns that work reliably
   const commandPatterns = {
-    camera: /\b(camera|see|look|vision|view|detect|analyze|scan|watch|observe|show|photo|picture)\b/i,
-    navigation: /\b(navigate|walk|direction|guide|route|move|go|path|travel|drive|location|where)\b/i,
-    emergency: /\b(emergency|help|urgent|call|sos|assist|danger|rescue|alert|911)\b/i,
-    settings: /\b(settings|preferences|config|adjust|volume|speed|options|setup|modify)\b/i,
-    status: /\b(status|mode|current|where|what|how|state|condition|info|information)\b/i,
-    help: /\b(help|commands|what\s+(can|do)|available|list|show\s+commands|instructions)\b/i,
-    stop: /\b(stop|halt|end|quit|disable|off|pause|cancel)\b/i,
-    start: /\b(start|begin|activate|enable|on|run|launch|open)\b/i,
+    camera: /\b(camera|see|look|vision|view|photo|picture|detect|analyze)\b/i,
+    navigation: /\b(navigate|walk|direction|guide|route|move|go|travel|where)\b/i,
+    emergency: /\b(emergency|help|urgent|call|sos|911)\b/i,
+    settings: /\b(settings|preferences|config|adjust|volume|speed|options)\b/i,
+    status: /\b(status|mode|current|what|how|state|info)\b/i,
+    help: /\b(help|commands|what.*can|available|list)\b/i,
+    stop: /\b(stop|halt|end|quit|disable|off|pause)\b/i,
   };
 
-  // Check browser support and permissions
+  const addDebugInfo = (info: string) => {
+    console.log(`[Voice Debug] ${info}`);
+    setDebugInfo(prev => {
+      const newInfo = [...prev, `${new Date().toLocaleTimeString()}: ${info}`];
+      return newInfo.slice(-5); // Keep only last 5 debug messages
+    });
+  };
+
+  // Check browser support and request permissions immediately
   useEffect(() => {
-    const checkSupport = async () => {
+    const initializeVoiceRecognition = async () => {
+      addDebugInfo('Initializing voice recognition...');
+      
+      // Check browser support
       const supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
       setIsSupported(supported);
       
       if (!supported) {
-        setErrorMessage('Speech recognition not supported. Use Chrome, Edge, or Safari.');
+        setErrorMessage('Speech recognition not supported. Please use Chrome, Edge, or Safari.');
+        addDebugInfo('Browser not supported');
         return;
       }
 
+      // Request microphone permission immediately
       try {
-        const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
-        setMicrophonePermission(permission.state);
-        permission.onchange = () => setMicrophonePermission(permission.state);
+        addDebugInfo('Requesting microphone permission...');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop()); // Stop the test stream
+        setMicrophonePermission('granted');
+        addDebugInfo('Microphone permission granted');
+        setErrorMessage(null);
+        
+        // Auto-start recognition after permission granted
+        setTimeout(() => {
+          startRecognition();
+        }, 500);
       } catch (error) {
-        console.log('Permission API not supported');
+        setMicrophonePermission('denied');
+        setErrorMessage('Microphone access required. Please allow and refresh the page.');
+        addDebugInfo(`Microphone permission denied: ${error}`);
       }
     };
 
-    checkSupport();
+    initializeVoiceRecognition();
   }, []);
 
-  // Enhanced wake word detection with fuzzy matching
-  const detectWakeWord = (text: string): { detected: boolean; cleanCommand: string; confidence: number } => {
-    const lowerText = text.toLowerCase().trim();
-    console.log(`Analyzing text: "${lowerText}"`);
-    
-    let bestMatch = { detected: false, cleanCommand: lowerText, confidence: 0 };
-    
-    for (const pattern of wakeWordPatterns) {
-      const match = pattern.exec(lowerText);
-      if (match) {
-        const cleanCommand = lowerText.replace(pattern, '').trim();
-        // Calculate confidence based on match strength
-        const matchConfidence = Math.min(1, match[0].length / 10);
-        
-        if (matchConfidence > bestMatch.confidence) {
-          bestMatch = { 
-            detected: true, 
-            cleanCommand, 
-            confidence: matchConfidence 
-          };
-        }
-        
-        console.log(`Wake word detected! Clean command: "${cleanCommand}" (confidence: ${matchConfidence})`);
-      }
-    }
-    
-    // Fallback: Check if text contains any wake word elements
-    if (!bestMatch.detected) {
-      const wakeWords = ['vision', 'guide', 'voice', 'hey'];
-      const foundWakeWords = wakeWords.filter(word => lowerText.includes(word));
-      
-      if (foundWakeWords.length > 0) {
-        bestMatch = {
-          detected: true,
-          cleanCommand: lowerText,
-          confidence: foundWakeWords.length * 0.3
-        };
-        console.log(`Fallback wake word detection: ${foundWakeWords.join(', ')}`);
-      }
-    }
-    
-    return bestMatch;
-  };
-
-  // Enhanced command processing with improved pattern matching
+  // Process voice commands with improved logic
   const processVoiceCommand = (command: string, confidence: number) => {
-    if (processingRef.current) {
-      console.log('Already processing, skipping duplicate');
+    const cleanCommand = command.toLowerCase().trim();
+    
+    // Prevent processing duplicate commands
+    if (cleanCommand === lastProcessedRef.current || cleanCommand.length < 2) {
       return;
     }
-
-    console.log(`Processing: "${command}" (confidence: ${confidence})`);
     
-    // Enhanced duplicate detection
-    const recentCommands = commandHistoryRef.current.slice(-5);
-    const isDuplicate = recentCommands.some(recent => 
-      recent === command || 
-      command.includes(recent) || 
-      recent.includes(command)
-    );
+    lastProcessedRef.current = cleanCommand;
+    addDebugInfo(`Processing: "${cleanCommand}" (confidence: ${confidence})`);
     
-    if (isDuplicate) {
-      console.log('Duplicate or similar command ignored');
-      return;
-    }
-
-    commandHistoryRef.current.push(command);
-    if (commandHistoryRef.current.length > 20) {
-      commandHistoryRef.current.shift();
-    }
-
-    processingRef.current = true;
     setIsProcessingCommand(true);
-    setLastCommand(command);
+    setLastCommand(cleanCommand);
     
-    // Update confidence history for accuracy tracking
-    confidenceHistoryRef.current.push(confidence);
-    if (confidenceHistoryRef.current.length > 10) {
-      confidenceHistoryRef.current.shift();
-    }
+    // Check for commands with simpler logic
+    let commandExecuted = false;
     
-    const avgConfidence = confidenceHistoryRef.current.reduce((a, b) => a + b, 0) / confidenceHistoryRef.current.length;
-    setRecognitionAccuracy(avgConfidence * 100);
-
-    const { detected, cleanCommand, confidence: wakeConfidence } = detectWakeWord(command);
-    
-    if (!detected && confidence < 0.7) {
-      console.log('No wake word detected and low confidence');
-      processingRef.current = false;
-      setIsProcessingCommand(false);
-      return;
-    }
-
-    // Enhanced command matching with weighted scoring
-    let bestMatch = { action: '', confidence: 0, description: '' };
-    
-    const commandChecks = [
-      { 
-        pattern: commandPatterns.camera, 
-        action: 'camera', 
-        callback: () => { onVoiceCommand('camera'); onCameraAction('start'); },
-        description: 'Camera activated for enhanced YOLO object detection'
-      },
-      { 
-        pattern: commandPatterns.navigation, 
-        action: 'navigation', 
-        callback: () => { onVoiceCommand('navigation'); onNavigationAction('start'); },
-        description: 'GPS navigation mode activated'
-      },
-      { 
-        pattern: commandPatterns.emergency, 
-        action: 'emergency', 
-        callback: () => { onVoiceCommand('emergency'); onEmergencyAction('open'); },
-        description: 'Emergency assistance panel opened'
-      },
-      { 
-        pattern: commandPatterns.settings, 
-        action: 'settings', 
-        callback: () => { onVoiceCommand('settings'); },
-        description: 'Voice and system settings panel opened'
-      },
-      { 
-        pattern: commandPatterns.status, 
-        action: 'status', 
-        callback: () => speak(`Current mode: ${currentMode}. Recognition accuracy: ${Math.round(avgConfidence * 100)}%. Voice commands active.`),
-        description: `Status reported: ${currentMode} mode, ${Math.round(avgConfidence * 100)}% accuracy`
-      },
-      { 
-        pattern: commandPatterns.help, 
-        action: 'help', 
-        callback: () => speak('Available commands: Hey Vision Camera for object detection, Hey Vision Navigate for GPS guidance, Hey Vision Emergency for help, Hey Vision Settings for preferences, or Hey Vision Status for system information'),
-        description: 'Help information provided with all available voice commands'
-      },
-      { 
-        pattern: commandPatterns.stop, 
-        action: 'stop', 
-        callback: () => { 
-          stopRecognition(); 
-          speak('Voice recognition stopped. Click the microphone to restart.'); 
-        },
-        description: 'Voice recognition system stopped'
-      }
-    ];
-
-    for (const check of commandChecks) {
-      if (check.pattern.test(cleanCommand || command)) {
-        const matchStrength = (cleanCommand || command).match(check.pattern)?.[0].length || 0;
-        const commandConfidence = Math.min(1, (matchStrength / 10) + wakeConfidence);
-        
-        if (commandConfidence > bestMatch.confidence) {
-          bestMatch = { 
-            action: check.action, 
-            confidence: commandConfidence,
-            description: check.description
-          };
-        }
-      }
+    if (commandPatterns.camera.test(cleanCommand)) {
+      addDebugInfo('Camera command detected');
+      onVoiceCommand('camera');
+      onCameraAction('start');
+      speak('Camera activated for object detection');
+      commandExecuted = true;
+    } else if (commandPatterns.navigation.test(cleanCommand)) {
+      addDebugInfo('Navigation command detected');
+      onVoiceCommand('navigation');
+      onNavigationAction('start');
+      speak('Navigation mode activated');
+      commandExecuted = true;
+    } else if (commandPatterns.emergency.test(cleanCommand)) {
+      addDebugInfo('Emergency command detected');
+      onVoiceCommand('emergency');
+      onEmergencyAction('open');
+      speak('Emergency panel opened');
+      commandExecuted = true;
+    } else if (commandPatterns.settings.test(cleanCommand)) {
+      addDebugInfo('Settings command detected');
+      onVoiceCommand('settings');
+      speak('Settings panel opened');
+      commandExecuted = true;
+    } else if (commandPatterns.status.test(cleanCommand)) {
+      addDebugInfo('Status command detected');
+      speak(`Current mode is ${currentMode}. Voice recognition is active.`);
+      commandExecuted = true;
+    } else if (commandPatterns.help.test(cleanCommand)) {
+      addDebugInfo('Help command detected');
+      speak('Say camera for object detection, navigate for directions, emergency for help, or settings for preferences');
+      commandExecuted = true;
+    } else if (commandPatterns.stop.test(cleanCommand)) {
+      addDebugInfo('Stop command detected');
+      stopRecognition();
+      speak('Voice recognition stopped');
+      commandExecuted = true;
     }
 
-    // Execute best matching command
-    if (bestMatch.confidence > 0.3) {
-      const matchingCheck = commandChecks.find(c => c.action === bestMatch.action);
-      if (matchingCheck) {
-        matchingCheck.callback();
-        speak(bestMatch.description);
-        console.log(`Executed: ${bestMatch.action} (confidence: ${bestMatch.confidence})`);
-      }
-    } else {
-      const suggestion = confidence > 0.5 ? 
-        `Command "${cleanCommand || command}" not recognized. Try: "Hey Vision Camera", "Hey Vision Navigate", or "Hey Vision Help"` :
-        'Please speak more clearly. Say "Hey Vision Help" for available commands';
-      
-      speak(suggestion);
-      console.log(`No match found for: "${cleanCommand || command}" (best confidence: ${bestMatch.confidence})`);
+    if (!commandExecuted) {
+      addDebugInfo(`No command match found for: "${cleanCommand}"`);
+      speak('Command not recognized. Try saying camera, navigate, emergency, settings, or help');
     }
 
     // Reset processing state
     setTimeout(() => {
-      processingRef.current = false;
       setIsProcessingCommand(false);
+      lastProcessedRef.current = '';
     }, 2000);
   };
 
-  // Enhanced error handling
+  // Improved error handling
   const handleRecognitionError = (error: any) => {
-    console.log('Recognition error:', error.error);
+    addDebugInfo(`Recognition error: ${error.error}`);
     
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
@@ -293,11 +196,11 @@ export const VoiceControls = ({
         setRecognitionState('stopped');
         onListeningChange(false);
         setMicrophonePermission('denied');
-        setErrorMessage("Microphone access denied. Please allow microphone access.");
+        setErrorMessage("Microphone access denied. Please allow microphone access and refresh.");
         isManualStopRef.current = true;
         break;
       case 'network':
-        setErrorMessage("Network error. Check internet connection.");
+        setErrorMessage("Network error. Retrying...");
         restartRecognition(3000);
         break;
       case 'audio-capture':
@@ -305,11 +208,11 @@ export const VoiceControls = ({
         restartRecognition(2000);
         break;
       case 'no-speech':
-        console.log('No speech detected, continuing...');
+        addDebugInfo('No speech detected, continuing...');
         break;
       default:
-        console.log('Unknown error, restarting...');
-        restartRecognition(1000);
+        addDebugInfo('Unknown error, restarting...');
+        restartRecognition(1500);
     }
   };
 
@@ -321,44 +224,92 @@ export const VoiceControls = ({
     }
   };
 
-  const requestMicrophonePermission = async () => {
-    try {
-      await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMicrophonePermission('granted');
-      setErrorMessage(null);
-      return true;
-    } catch (error) {
-      setMicrophonePermission('denied');
-      setErrorMessage("Microphone access required for voice commands.");
-      return false;
-    }
-  };
-
-  const startRecognition = async () => {
-    if (!isSupported || recognitionState === 'running' || isManualStopRef.current) return;
-
-    if (microphonePermission === 'denied') {
-      const granted = await requestMicrophonePermission();
-      if (!granted) return;
+  const startRecognition = () => {
+    if (!isSupported || recognitionState === 'running' || isManualStopRef.current || microphonePermission !== 'granted') {
+      return;
     }
 
-    console.log('Starting enhanced speech recognition...');
+    addDebugInfo('Starting speech recognition...');
     setRecognitionState('starting');
     setErrorMessage(null);
     
     try {
-      if (recognitionRef.current && recognitionRef.current.abort) {
+      if (recognitionRef.current) {
         recognitionRef.current.abort();
       }
-      recognitionRef.current.start();
+      
+      const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      // Optimized settings for better recognition
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.maxAlternatives = 3;
+
+      recognition.onstart = () => {
+        addDebugInfo('Speech recognition started successfully');
+        setRecognitionState('running');
+        onListeningChange(true);
+        setTranscript('');
+        isManualStopRef.current = false;
+      };
+
+      recognition.onend = () => {
+        addDebugInfo('Speech recognition ended');
+        setRecognitionState('stopped');
+        onListeningChange(false);
+        
+        if (!isManualStopRef.current) {
+          restartRecognition(1000);
+        }
+      };
+
+      recognition.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        let maxConfidence = 0;
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const transcript = result[0].transcript.trim();
+          const confidence = result[0].confidence || 0.8;
+          
+          if (result.isFinal) {
+            finalTranscript += transcript;
+            maxConfidence = Math.max(maxConfidence, confidence);
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        const displayTranscript = finalTranscript || interimTranscript;
+        setTranscript(displayTranscript);
+        setConfidence(maxConfidence);
+
+        // Process final results with lower threshold for better responsiveness
+        if (finalTranscript && finalTranscript.length > 1) {
+          addDebugInfo(`Final transcript: "${finalTranscript}" (confidence: ${maxConfidence})`);
+          processVoiceCommand(finalTranscript, maxConfidence);
+          
+          setTimeout(() => setTranscript(''), 3000);
+        }
+      };
+
+      recognition.onerror = handleRecognitionError;
+      recognitionRef.current = recognition;
+      recognition.start();
+      
     } catch (error) {
-      console.error('Failed to start recognition:', error);
-      handleRecognitionError({ error: 'start_failed' });
+      addDebugInfo(`Failed to start recognition: ${error}`);
+      setErrorMessage("Failed to start voice recognition. Please try again.");
+      setRecognitionState('stopped');
     }
   };
 
   const stopRecognition = () => {
     isManualStopRef.current = true;
+    addDebugInfo('Stopping recognition manually');
     
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
@@ -373,99 +324,26 @@ export const VoiceControls = ({
     setErrorMessage(null);
   };
 
+  const toggleListening = () => {
+    if (recognitionState === 'running') {
+      stopRecognition();
+      speak('Voice recognition stopped');
+    } else {
+      if (microphonePermission !== 'granted') {
+        setErrorMessage('Please allow microphone access and refresh the page.');
+        return;
+      }
+      
+      isManualStopRef.current = false;
+      startRecognition();
+      speak('Voice recognition started. Speak clearly.');
+    }
+  };
+
   const { isLoading: whisperLoading, transcript: whisperTranscript, error: whisperError, recordAndTranscribe } = useWhisperTranscriber();
 
-  // Enhanced speech recognition setup
+  // Cleanup on unmount
   useEffect(() => {
-    if (!isSupported) return;
-
-    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
-    const recognitionInstance = new SpeechRecognition();
-
-    // Enhanced configuration for maximum accuracy
-    recognitionInstance.continuous = true;
-    recognitionInstance.interimResults = true;
-    recognitionInstance.lang = 'en-US';
-    recognitionInstance.maxAlternatives = 10; // Increased for better accuracy
-    
-    // Enhanced grammar support
-    if ('grammars' in recognitionInstance) {
-      const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
-      if (SpeechGrammarList) {
-        try {
-          const grammar = `#JSGF V1.0; grammar commands; 
-            public <command> = <wake> <action>;
-            <wake> = hey vision | vision | hey guide | guide | voice control | activate vision;
-            <action> = camera | navigate | emergency | settings | help | status | see | look | walk | call | stop | start | analyze | detect;`;
-          const speechRecognitionList = new SpeechGrammarList();
-          speechRecognitionList.addFromString(grammar, 1);
-          recognitionInstance.grammars = speechRecognitionList;
-        } catch (error) {
-          console.log('Grammar not supported, continuing without it');
-        }
-      }
-    }
-
-    recognitionInstance.onstart = () => {
-      console.log('Enhanced speech recognition started');
-      setRecognitionState('running');
-      onListeningChange(true);
-      setTranscript('');
-      isManualStopRef.current = false;
-      setErrorMessage(null);
-    };
-
-    recognitionInstance.onend = () => {
-      console.log('Speech recognition ended');
-      setRecognitionState('stopped');
-      onListeningChange(false);
-      
-      if (!isManualStopRef.current) {
-        restartRecognition(1500);
-      }
-    };
-
-    recognitionInstance.onresult = (event: any) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-      let maxConfidence = 0;
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const transcript = result[0].transcript.trim();
-        const confidence = result[0].confidence || 0.8;
-        
-        if (result.isFinal) {
-          finalTranscript += transcript;
-          maxConfidence = Math.max(maxConfidence, confidence);
-        } else {
-          interimTranscript += transcript;
-        }
-      }
-
-      const displayTranscript = finalTranscript || interimTranscript;
-      setTranscript(displayTranscript);
-      setConfidence(maxConfidence);
-
-      // Process final results with improved threshold
-      if (finalTranscript && maxConfidence > 0.2) {
-        console.log(`Final: "${finalTranscript}" (${maxConfidence})`);
-        processVoiceCommand(finalTranscript, maxConfidence);
-        
-        setTimeout(() => setTranscript(''), 4000);
-      }
-    };
-
-    recognitionInstance.onerror = handleRecognitionError;
-    recognitionRef.current = recognitionInstance;
-    
-    // Auto-start after setup
-    setTimeout(() => {
-      if (isSupported && microphonePermission !== 'denied') {
-        startRecognition();
-      }
-    }, 1000);
-
     return () => {
       if (restartTimeoutRef.current) {
         clearTimeout(restartTimeoutRef.current);
@@ -475,23 +353,7 @@ export const VoiceControls = ({
         recognitionRef.current.stop();
       }
     };
-  }, [isSupported, microphonePermission]);
-
-  const toggleListening = async () => {
-    if (recognitionState === 'running') {
-      stopRecognition();
-      speak('Enhanced voice recognition stopped');
-    } else {
-      if (microphonePermission === 'denied') {
-        const granted = await requestMicrophonePermission();
-        if (!granted) return;
-      }
-      
-      isManualStopRef.current = false;
-      await startRecognition();
-      speak('Ultra-accurate voice recognition started. Say hey vision followed by your command');
-    }
-  };
+  }, []);
 
   if (!isSupported) {
     return (
@@ -509,12 +371,12 @@ export const VoiceControls = ({
       <div className="text-center mb-4">
         <div className="flex items-center justify-center gap-2 mb-2">
           <Brain className="w-6 h-6 text-blue-400" />
-          <h3 className="text-xl font-semibold text-white">Ultra-Accurate Voice Control</h3>
+          <h3 className="text-xl font-semibold text-white">Voice Control</h3>
         </div>
-        <p className="text-gray-300 text-sm">Advanced AI-powered speech recognition with 95%+ accuracy</p>
-        {recognitionAccuracy > 0 && (
+        <p className="text-gray-300 text-sm">Speak clearly for voice commands</p>
+        {confidence > 0 && (
           <div className="text-green-400 text-xs mt-1">
-            Live Accuracy: {Math.round(recognitionAccuracy)}% | Confidence: {Math.round(confidence * 100)}%
+            Confidence: {Math.round(confidence * 100)}%
           </div>
         )}
       </div>
@@ -523,7 +385,7 @@ export const VoiceControls = ({
       {microphonePermission === 'denied' && (
         <div className="bg-red-500/20 border-red-400/30 rounded-lg p-3 mb-4">
           <p className="text-red-200 text-center text-sm">
-            Microphone access denied. Please allow microphone permissions and refresh.
+            Microphone access denied. Please allow microphone permissions and refresh the page.
           </p>
         </div>
       )}
@@ -558,11 +420,11 @@ export const VoiceControls = ({
       {transcript && (
         <div className="bg-blue-500/20 border-blue-400/30 rounded-lg p-3 mb-4">
           <p className="text-white text-center">
-            <span className="text-blue-200 text-sm">Ultra-accurate listening: </span>
+            <span className="text-blue-200 text-sm">Listening: </span>
             "{transcript}"
             {confidence > 0 && (
               <span className="text-blue-300 text-xs block">
-                Real-time Confidence: {Math.round(confidence * 100)}%
+                Confidence: {Math.round(confidence * 100)}%
               </span>
             )}
           </p>
@@ -573,11 +435,8 @@ export const VoiceControls = ({
       {lastCommand && (
         <div className="bg-green-500/20 border-green-400/30 rounded-lg p-3 mb-4">
           <p className="text-white text-center">
-            <span className="text-green-200 text-sm">Last Processed Command: </span>
+            <span className="text-green-200 text-sm">Last Command: </span>
             "{lastCommand}"
-            <span className="text-green-300 text-xs block">
-              ✓ Successfully executed with enhanced accuracy
-            </span>
           </p>
         </div>
       )}
@@ -587,20 +446,30 @@ export const VoiceControls = ({
         <div className="bg-yellow-500/20 border-yellow-400/30 rounded-lg p-3 mb-4">
           <p className="text-yellow-200 text-center flex items-center justify-center gap-2">
             <Brain className="w-4 h-4 animate-pulse" />
-            Processing with AI-enhanced accuracy...
+            Processing command...
           </p>
         </div>
       )}
 
-      {/* Enhanced Voice Commands */}
+      {/* Debug Information */}
+      {debugInfo.length > 0 && (
+        <div className="bg-gray-500/20 border-gray-400/30 rounded-lg p-3 mb-4">
+          <h4 className="text-gray-200 text-sm font-medium mb-2">Debug Info:</h4>
+          {debugInfo.map((info, index) => (
+            <p key={index} className="text-gray-300 text-xs">{info}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Voice Commands */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
         {[
-          { command: 'Hey Vision Camera', description: 'Activate enhanced YOLO object detection' },
-          { command: 'Hey Vision Navigate', description: 'Start precise GPS navigation' },
-          { command: 'Hey Vision Emergency', description: 'Open emergency assistance panel' },
-          { command: 'Hey Vision Settings', description: 'Adjust voice recognition settings' },
-          { command: 'Hey Vision Help', description: 'List all available voice commands' },
-          { command: 'Hey Vision Status', description: 'Check system status & accuracy metrics' },
+          { command: 'Camera', description: 'Activate object detection' },
+          { command: 'Navigate', description: 'Start navigation mode' },
+          { command: 'Emergency', description: 'Open emergency panel' },
+          { command: 'Settings', description: 'Open settings panel' },
+          { command: 'Help', description: 'List available commands' },
+          { command: 'Status', description: 'Check current mode' },
         ].map((cmd, index) => (
           <div key={index} className="bg-white/5 rounded-lg p-3 border border-white/10">
             <div className="text-white font-medium">"{cmd.command}"</div>
@@ -617,8 +486,8 @@ export const VoiceControls = ({
           'bg-red-500'
         }`}></div>
         <span className="text-white text-sm">
-          {recognitionState === 'running' ? 'Ultra-accurate listening active...' : 
-           recognitionState === 'starting' ? 'Starting enhanced recognition...' :
+          {recognitionState === 'running' ? 'Listening for commands...' : 
+           recognitionState === 'starting' ? 'Starting recognition...' :
            'Voice recognition stopped'}
         </span>
       </div>
@@ -626,8 +495,8 @@ export const VoiceControls = ({
       {/* Whisper Alternative */}
       <div className="mt-6 pt-4 border-t border-white/10">
         <div className="text-center mb-2">
-          <h4 className="text-white text-sm font-medium">Backup: Whisper AI Transcription</h4>
-          <p className="text-gray-400 text-xs">Ultra-accurate fallback for challenging environments</p>
+          <h4 className="text-white text-sm font-medium">Backup: Whisper AI</h4>
+          <p className="text-gray-400 text-xs">Alternative transcription method</p>
         </div>
         <div className="flex flex-col items-center gap-2">
           <Button 
@@ -635,11 +504,11 @@ export const VoiceControls = ({
             className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2"
             disabled={whisperLoading}
           >
-            {whisperLoading ? "Processing with AI..." : "Record with Whisper AI"}
+            {whisperLoading ? "Processing..." : "Record with Whisper"}
           </Button>
           {whisperTranscript && (
             <div className="px-3 py-2 rounded bg-orange-700/30 border border-orange-500 text-white text-center text-sm">
-              <strong>Whisper AI:</strong> "{whisperTranscript}"
+              <strong>Whisper:</strong> "{whisperTranscript}"
             </div>
           )}
           {whisperError && (
