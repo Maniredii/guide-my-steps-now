@@ -26,6 +26,5 @@
   "bald eagle",
   "vulture",
   "great grey owl",
-  /* ... (998 more lines with ImageNet class labels. For demo purposes, you may want only a few common labels—expand if needed.) ... */
   "toilet tissue"
 ]
