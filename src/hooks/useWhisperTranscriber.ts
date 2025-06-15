@@ -1,6 +1,6 @@
 
 import { useState, useRef } from "react";
-import { pipeline, PipelineType } from "@huggingface/transformers";
+import { pipeline } from "@huggingface/transformers";
 
 type UseWhisperTranscriberReturn = {
   isLoading: boolean;
@@ -13,7 +13,8 @@ export function useWhisperTranscriber(): UseWhisperTranscriberReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const transcriberRef = useRef<PipelineType | null>(null);
+  // Changed to any due to transformer types for Whisper
+  const transcriberRef = useRef<any>(null);
 
   // This will prompt for microphone, record a short sample, and transcribe
   const recordAndTranscribe = async () => {
@@ -50,7 +51,7 @@ export function useWhisperTranscriber(): UseWhisperTranscriberReturn {
 
           // Run Whisper transcription
           try {
-            const output = await transcriberRef.current!(audioURL);
+            const output = await transcriberRef.current(audioURL);
             setTranscript(output.text.trim());
             setIsLoading(false);
             resolve();
@@ -61,10 +62,10 @@ export function useWhisperTranscriber(): UseWhisperTranscriberReturn {
           }
         };
 
-        mediaRecorder.onerror = (ev) => {
+        mediaRecorder.onerror = (_ev) => {
           setError("Recording error.");
           setIsLoading(false);
-          reject(ev.error);
+          reject(new Error("MediaRecorder error"));
         };
 
         mediaRecorder.start();
