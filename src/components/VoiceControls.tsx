@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { useWhisperTranscriber } from "@/hooks/useWhisperTranscriber";
 
 declare global {
   interface Window {
@@ -292,6 +293,8 @@ export const VoiceControls = ({
     onListeningChange(false);
   };
 
+  const { isLoading: whisperLoading, transcript: whisperTranscript, error: whisperError, recordAndTranscribe } = useWhisperTranscriber();
+
   useEffect(() => {
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
@@ -526,6 +529,30 @@ export const VoiceControls = ({
           </p>
         </div>
       )}
+
+      {/* NEW: Whisper Transcription Demo */}
+      <div className="my-4">
+        <div className="flex flex-col items-center">
+          <Button 
+            onClick={recordAndTranscribe}
+            className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2 mb-2"
+            disabled={whisperLoading}
+          >
+            {whisperLoading ? "Listening (Whisper)..." : "Try Whisper Transcription"}
+          </Button>
+          {whisperLoading && <div className="text-orange-200 text-sm mt-1">Recording up to 4 seconds...</div>}
+          {whisperTranscript && (
+            <div className="mt-2 px-3 py-2 rounded bg-orange-700/30 border border-orange-500 text-white text-center text-sm">
+              <strong>Whisper result:</strong> "{whisperTranscript}"
+            </div>
+          )}
+          {whisperError && (
+            <div className="mt-2 px-2 py-1 rounded bg-red-500/30 border border-red-500 text-red-200 text-center text-sm">
+              {whisperError}
+            </div>
+          )}
+        </div>
+      </div>
     </Card>
   );
 };
