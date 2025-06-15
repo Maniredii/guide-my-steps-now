@@ -22,35 +22,65 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects, isActive
   const simulateObjectDetection = () => {
     // Each object has: name, distance, warning, weight (probability of appearing)
     const possibleObjects = [
+      // Urban/Outdoor
       { name: 'person walking', distance: '2 meters ahead', warning: false, weight: 30 },
       { name: 'child standing', distance: '5 meters to your left', warning: false, weight: 10 },
-      { name: 'bicycle parked', distance: '3 meters ahead', warning: false, weight: 8 },
-      { name: 'tree', distance: '4 meters to your right', warning: false, weight: 25 },
-      { name: 'bench', distance: '2 meters behind', warning: false, weight: 10 },
-      { name: 'car', distance: '9 meters ahead', warning: true, weight: 7 },
-      { name: 'open door', distance: '1 meter ahead', warning: false, weight: 6 },
-      { name: 'stairs going up', distance: '7 meters ahead', warning: true, weight: 2 },
-      { name: 'traffic light', distance: '15 meters ahead', warning: false, weight: 2 },
-      { name: 'sidewalk continues', distance: '', warning: false, weight: 18 },
-      { name: 'sign post', distance: '3 meters to your right', warning: false, weight: 4 },
-      { name: 'dog', distance: '2 meters held by owner', warning: false, weight: 5 },
-      { name: 'construction cone', distance: '6 meters ahead', warning: true, weight: 3 },
-      { name: 'glass door', distance: '1 meter ahead', warning: true, weight: 2 },
-      { name: 'empty path', distance: '', warning: false, weight: 20 },
-      // Add more realistic objects as needed
+      { name: 'dog', distance: '2 meters held by owner', warning: false, weight: 14 },
+      { name: 'bicycle parked', distance: '3 meters ahead', warning: false, weight: 9 },
+      { name: 'bicycle moving', distance: 'quickly passing by on right', warning: true, weight: 7 },
+      { name: 'runner jogging', distance: '8 meters behind', warning: false, weight: 8 },
+      { name: 'group of people', distance: 'standing 6 meters ahead', warning: false, weight: 12 },
+      { name: 'traffic cone', distance: 'on the path 7 meters ahead', warning: true, weight: 6 },
+      { name: 'road sign', distance: '3 meters to your right', warning: false, weight: 6 },
+      { name: 'crosswalk', distance: '10 meters ahead', warning: false, weight: 4 },
+      { name: 'fire hydrant', distance: 'beside the path 2 meters ahead', warning: false, weight: 4 },
+      { name: 'car', distance: '9 meters ahead', warning: true, weight: 14 },
+      { name: 'moving car', distance: 'approaching from left', warning: true, weight: 6 },
+      { name: 'bus', distance: '15 meters stopped', warning: false, weight: 2 },
+      { name: 'open door', distance: '1 meter ahead', warning: false, weight: 5 },
+      { name: 'stairs going up', distance: '7 meters ahead', warning: true, weight: 5 },
+      { name: 'stairs going down', distance: 'nearby', warning: true, weight: 2 },
+      { name: 'glass door', distance: 'right ahead', warning: true, weight: 2 },
+      { name: 'construction barrier', distance: 'blocking path', warning: true, weight: 2 },
+      { name: 'pothole', distance: 'on path, 2 meters ahead', warning: true, weight: 2 },
+      { name: 'wheelchair ramp', distance: 'beside stairs', warning: false, weight: 1 },
+      { name: 'streetlight', distance: 'overhead', warning: false, weight: 2 },
+      { name: 'bench', distance: '2 meters behind', warning: false, weight: 7 },
+      { name: 'lamp post', distance: 'to your left', warning: false, weight: 7 },
+      { name: 'trash can', distance: 'next to bench', warning: false, weight: 4 },
+      { name: 'stop sign', distance: '10 meters ahead', warning: false, weight: 3 },
+      { name: 'trash bin', distance: 'right side', warning: false, weight: 2 },
+      // Indoor
+      { name: 'door', distance: 'right ahead', warning: false, weight: 10 },
+      { name: 'steps up', distance: 'just in front', warning: true, weight: 2 },
+      { name: 'chair', distance: 'at 3 meters', warning: false, weight: 9 },
+      { name: 'table', distance: 'centered', warning: false, weight: 7 },
+      { name: 'wall', distance: 'close right side', warning: false, weight: 12 },
+      { name: 'window', distance: 'on your left', warning: false, weight: 8 },
+      // Nature
+      { name: 'tree', distance: '4 meters to your right', warning: false, weight: 20 },
+      { name: 'flower bush', distance: '3 meters left', warning: false, weight: 4 },
+      { name: 'open grass area', distance: 'ahead', warning: false, weight: 3 },
+      { name: 'lake', distance: 'far right', warning: false, weight: 1 },
+      { name: 'bird', distance: 'on ground nearby', warning: false, weight: 6 },
+      // Misc/Edge
+      { name: 'empty path', distance: '', warning: false, weight: 21 },
+      { name: 'sidewalk continues', distance: '', warning: false, weight: 14 },
+      { name: 'sign post', distance: '3 meters to your right', warning: false, weight: 5 },
+      { name: 'child on scooter', distance: '5 meters ahead', warning: true, weight: 2 },
+      { name: 'motorcycle', distance: 'passing by', warning: true, weight: 2 },
+      { name: 'cat', distance: 'on the sidewalk', warning: false, weight: 3 },
+      { name: 'dog leash', distance: 'across the path', warning: true, weight: 1 },
+      { name: 'shopping cart', distance: 'by store entrance', warning: false, weight: 1 },
+      { name: 'delivery robot', distance: 'crossing path', warning: false, weight: 1 },
+      { name: 'electric scooter', distance: '2 meters ahead', warning: true, weight: 1 },
+      // Add more "real-world" objects below as needed to further expand realism
     ];
 
-    // Weighted random selection
+    // Weighted random selection (same logic as previous)
     const objectsToShow = [];
     const maxObjects = 2 + Math.round(Math.random()); // 2-3 objects per scan
-
-    // Build a weighted pool
-    const pool = possibleObjects.flatMap(obj =>
-      Array(obj.weight).fill(obj)
-    );
-
-    // Pick unique objects (no repeats)
-    const usedIndices = new Set<number>();
+    const pool = possibleObjects.flatMap(obj => Array(obj.weight).fill(obj));
 
     while (objectsToShow.length < maxObjects && pool.length > 0) {
       const idx = Math.floor(Math.random() * pool.length);
