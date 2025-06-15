@@ -1,4 +1,3 @@
-
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -184,22 +183,28 @@ export const CameraView = ({
       )}
 
       {/* Detected Objects Display */}
-      {isActive && detectedObjects.length > 0 && (
+      {isActive && detections.length > 0 && (
         <Card className="bg-white/10 border-white/20 p-4">
           <h3 className="text-lg font-semibold text-white mb-3">YOLO Detections:</h3>
           <div className="grid grid-cols-2 gap-2">
-            {detectedObjects.map((object, index) => (
+            {detections.map((detection, index) => (
               <div
                 key={index}
                 className="bg-white/10 rounded-lg p-3 flex items-center gap-2"
               >
-                {object.includes('person') && <Users className="w-5 h-5 text-blue-400" />}
-                {object.includes('car') && <Car className="w-5 h-5 text-red-400" />}
-                {object.includes('tree') && <TreePine className="w-5 h-5 text-green-400" />}
-                {!object.includes('person') && !object.includes('car') && !object.includes('tree') &&
+                {/* Icon for label */}
+                {detection.label.includes('person') && <Users className="w-5 h-5 text-blue-400" />}
+                {detection.label.includes('car') && <Car className="w-5 h-5 text-red-400" />}
+                {detection.label.includes('tree') && <TreePine className="w-5 h-5 text-green-400" />}
+                {!detection.label.includes('person') && !detection.label.includes('car') && !detection.label.includes('tree') &&
                   <AlertTriangle className="w-5 h-5 text-yellow-400" />
                 }
-                <span className="text-white text-sm">{object}</span>
+                <span className="text-white text-sm">
+                  {detection.label}
+                  <span className="ml-2 text-xs text-green-300 font-semibold">
+                    ({(detection.confidence * 100).toFixed(1)}%)
+                  </span>
+                </span>
               </div>
             ))}
           </div>
