@@ -1,4 +1,3 @@
-
 import { useState, useRef, useEffect } from 'react';
 import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,28 +18,54 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects, isActive
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Simulated object detection (in a real app, this would use AI/ML models)
+  // Improved: Weighted object detection for more plausible results
   const simulateObjectDetection = () => {
+    // Each object has: name, distance, warning, weight (probability of appearing)
     const possibleObjects = [
-      { name: 'person walking', distance: '3 meters ahead', warning: false },
-      { name: 'bicycle', distance: '5 meters to your right', warning: true },
-      { name: 'tree', distance: '2 meters to your left', warning: false },
-      { name: 'bench', distance: '4 meters ahead', warning: false },
-      { name: 'car', distance: '10 meters ahead', warning: true },
-      { name: 'stairs going up', distance: '6 meters ahead', warning: true },
-      { name: 'door', distance: '1 meter ahead', warning: false },
-      { name: 'sidewalk continues straight', distance: '', warning: false },
+      { name: 'person walking', distance: '2 meters ahead', warning: false, weight: 30 },
+      { name: 'child standing', distance: '5 meters to your left', warning: false, weight: 10 },
+      { name: 'bicycle parked', distance: '3 meters ahead', warning: false, weight: 8 },
+      { name: 'tree', distance: '4 meters to your right', warning: false, weight: 25 },
+      { name: 'bench', distance: '2 meters behind', warning: false, weight: 10 },
+      { name: 'car', distance: '9 meters ahead', warning: true, weight: 7 },
+      { name: 'open door', distance: '1 meter ahead', warning: false, weight: 6 },
+      { name: 'stairs going up', distance: '7 meters ahead', warning: true, weight: 2 },
+      { name: 'traffic light', distance: '15 meters ahead', warning: false, weight: 2 },
+      { name: 'sidewalk continues', distance: '', warning: false, weight: 18 },
+      { name: 'sign post', distance: '3 meters to your right', warning: false, weight: 4 },
+      { name: 'dog', distance: '2 meters held by owner', warning: false, weight: 5 },
+      { name: 'construction cone', distance: '6 meters ahead', warning: true, weight: 3 },
+      { name: 'glass door', distance: '1 meter ahead', warning: true, weight: 2 },
+      { name: 'empty path', distance: '', warning: false, weight: 20 },
+      // Add more realistic objects as needed
     ];
 
-    const numObjects = Math.floor(Math.random() * 3) + 1;
-    const selectedObjects = [];
-    
-    for (let i = 0; i < numObjects; i++) {
-      const randomObject = possibleObjects[Math.floor(Math.random() * possibleObjects.length)];
-      selectedObjects.push(randomObject);
+    // Weighted random selection
+    const objectsToShow = [];
+    const maxObjects = 2 + Math.round(Math.random()); // 2-3 objects per scan
+
+    // Build a weighted pool
+    const pool = possibleObjects.flatMap(obj =>
+      Array(obj.weight).fill(obj)
+    );
+
+    // Pick unique objects (no repeats)
+    const usedIndices = new Set<number>();
+
+    while (objectsToShow.length < maxObjects && pool.length > 0) {
+      const idx = Math.floor(Math.random() * pool.length);
+      const candidate = pool[idx];
+      // Avoid repeating the same object in one detection
+      if (!objectsToShow.some(o => o.name === candidate.name)) {
+        objectsToShow.push(candidate);
+      }
+      // Remove all copies of this object from the pool
+      for (let i = pool.length - 1; i >= 0; i--) {
+        if (pool[i].name === candidate.name) pool.splice(i, 1);
+      }
     }
 
-    return selectedObjects;
+    return objectsToShow;
   };
 
   const analyzeScene = () => {
@@ -48,24 +73,31 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects, isActive
     const objectNames = detectedItems.map(obj => obj.name);
     onDetectedObjects(objectNames);
 
-    let description = 'I can see: ';
-    const warnings = [];
+    // Improved: separate normal and warning objects, realistic sentence structure
+    const safe = detectedItems.filter(i => !i.warning);
+    const hazards = detectedItems.filter(i => i.warning);
 
-    detectedItems.forEach((item, index) => {
-      if (index > 0) description += ', ';
-      description += `${item.name}${item.distance ? ' ' + item.distance : ''}`;
-      
-      if (item.warning) {
-        warnings.push(`Caution: ${item.name} ${item.distance}`);
-      }
-    });
-
-    if (warnings.length > 0) {
-      description += '. ' + warnings.join('. ');
+    let description = '';
+    if (safe.length > 0) {
+      description += "I can see ";
+      description += safe
+        .map(item => `${item.name}${item.distance ? ' ' + item.distance : ''}`)
+        .join(', ');
+      description += '. ';
     }
+    if (hazards.length > 0) {
+      description += hazards
+        .map(item => `Caution: ${item.name}${item.distance ? ' ' + item.distance : ''}`)
+        .join('. ');
+      description += '. ';
+    }
+    if (!hazards.length) {
+      description += 'Path looks clear. ';
+    } else {
+      description += 'Please be careful. ';
+    }
+    description = description.trim();
 
-    description += '. Path appears safe to continue.';
-    
     setLastDescription(description);
     speak(description);
   };
