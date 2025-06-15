@@ -11,6 +11,7 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { OCRReader } from "@/components/OCRReader";
 import { PathDemo } from "@/components/PathDemo";
 import { downloadLogs, addLog } from "@/utils/logs";
+import { getLanguageOptions, LanguageOption } from '@/utils/languageOptions';
 
 const Index = () => {
   const [activeMode, setActiveMode] = useState<'camera' | 'navigation' | 'emergency' | 'settings'>('camera');
@@ -32,33 +33,18 @@ const Index = () => {
     enabled: true
   });
 
-  // Supported language options for speech synthesis / OCR
-  const languageOptions = [
-    { label: "English (US)", code: "en-US", tesseract: "eng" },
-    { label: "Hindi (हिन्दी)", code: "hi-IN", tesseract: "hin" },
-    { label: "Bengali (বাংলা)", code: "bn-IN", tesseract: "ben" },
-    { label: "Tamil (தமிழ்)", code: "ta-IN", tesseract: "tam" },
-    { label: "Telugu (తెలుగు)", code: "te-IN", tesseract: "tel" },
-    { label: "Kannada (ಕನ್ನಡ)", code: "kn-IN", tesseract: "kan" },
-    { label: "Malayalam (മലയാളം)", code: "ml-IN", tesseract: "mal" },
-    { label: "Marathi (मराठी)", code: "mr-IN", tesseract: "mar" },
-    { label: "Gujarati (ગુજરાતી)", code: "gu-IN", tesseract: "guj" },
-    { label: "Punjabi (ਪੰਜਾਬੀ)", code: "pa-IN", tesseract: "pan" },
-    { label: "Urdu (اردو)", code: "ur-IN", tesseract: "urd" },
-    { label: "Spanish (Español)", code: "es-ES", tesseract: "spa" },
-    { label: "French (Français)", code: "fr-FR", tesseract: "fra" },
-    { label: "German (Deutsch)", code: "de-DE", tesseract: "deu" },
-    { label: "Chinese (中文)", code: "zh-CN", tesseract: "chi_sim" },
-    { label: "Japanese (日本語)", code: "ja-JP", tesseract: "jpn" },
-    { label: "Russian (Русский)", code: "ru-RU", tesseract: "rus" },
-    { label: "Arabic (العربية)", code: "ar-SA", tesseract: "ara" },
-    { label: "Portuguese (Português)", code: "pt-PT", tesseract: "por" },
-    { label: "Italian (Italiano)", code: "it-IT", tesseract: "ita" }
-  ];
+  // Dynamically populated languages for OCR + TTS based on device/browser support
+  const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>([]);
+  const [ttsLang, setTtsLang] = useState("en-US");
+
+  useEffect(() => {
+    // Fetch supported languages for TTS/OCR
+    getLanguageOptions().then(setLanguageOptions);
+  }, []);
 
   // Get Tesseract code for OCR corresponding to selected TTS language
   const selectedLangOption = languageOptions.find(opt => opt.code === ttsLang) || languageOptions[0];
-  const ocrLang = selectedLangOption.tesseract;
+  const ocrLang = selectedLangOption?.tesseract || "eng";
 
   // Speech synthesis for voice feedback
   const speak = (text: string) => {
@@ -256,7 +242,14 @@ const Index = () => {
             aria-label="Select language"
           >
             {languageOptions.map(opt => (
-              <option value={opt.code} key={opt.code}>{opt.label}</option>
+              <option value={opt.code} key={opt.code}>
+                {opt.label}
+                {opt.ttsSupported && opt.ocrSupported
+                  ? " (TTS + OCR)"
+                  : opt.ttsSupported
+                  ? " (TTS)"
+                  : " (OCR)"}
+              </option>
             ))}
           </select>
         </div>
