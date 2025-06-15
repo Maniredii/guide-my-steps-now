@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -40,8 +41,10 @@ export const VoiceControls = ({
   const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running'>('stopped');
   const [lastCommand, setLastCommand] = useState('');
   const [isWaitingForCommand, setIsWaitingForCommand] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null); // track error display
-  const [errorCount, setErrorCount] = useState(0); // handle persistent errors
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorCount, setErrorCount] = useState(0);
+  const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
+  const [isSupported, setIsSupported] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -51,20 +54,50 @@ export const VoiceControls = ({
   const lastSpeechTimeRef = useRef<number>(0);
   const processingRef = useRef(false);
 
-  // Enhanced wake word detection
+  // Check browser support and microphone permissions
+  useEffect(() => {
+    const checkSupport = async () => {
+      const supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
+      setIsSupported(supported);
+      
+      if (!supported) {
+        setErrorMessage('Speech recognition is not supported in this browser. Try Chrome, Edge, or Safari.');
+        return;
+      }
+
+      // Check microphone permission
+      try {
+        const permission = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+        setMicrophonePermission(permission.state);
+        
+        permission.onchange = () => {
+          setMicrophonePermission(permission.state);
+        };
+      } catch (error) {
+        console.log('Permission API not supported, will check on first use');
+      }
+    };
+
+    checkSupport();
+  }, []);
+
+  // Enhanced wake word detection with better similarity
   const detectWakeWord = (text: string): boolean => {
-    const lowerText = text.toLowerCase();
+    const lowerText = text.toLowerCase().replace(/[^\w\s]/g, '');
     const wakeWords = [
-      'hey vision', 'vision', 'hey guide', 'guide', 'hey division', 'division', 'revision', 'havision', 'hey vis', 'hei vision', 'a vision', 'evision'
+      'hey vision', 'vision', 'hey guide', 'guide', 'hey division', 
+      'division', 'revision', 'havision', 'hey vis', 'hei vision', 
+      'a vision', 'evision', 'hey fishing', 'fishing'
     ];
-    // Accepts if any word in phrase is in the wakeWords set, or Levenshtein similarity > 0.6
-    return wakeWords.some(wake =>
-      lowerText.includes(wake) ||
-      calculateSimilarity(lowerText, wake) > 0.6
-    ) || lowerText.replace(/[^a-z]/g,"").startsWith('vision') // Accept trailing/partial
+    
+    return wakeWords.some(wake => {
+      const similarity = calculateSimilarity(lowerText, wake);
+      console.log(`Comparing "${lowerText}" with "${wake}": ${similarity}`);
+      return lowerText.includes(wake) || similarity > 0.7;
+    });
   };
 
-  // Simple similarity calculation
+  // Improved similarity calculation
   const calculateSimilarity = (str1: string, str2: string): number => {
     const longer = str1.length > str2.length ? str1 : str2;
     const shorter = str1.length > str2.length ? str2 : str1;
@@ -116,7 +149,7 @@ export const VoiceControls = ({
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 0.8;
+      utterance.rate = 0.9;
       utterance.pitch = 1;
       utterance.volume = 1;
       
@@ -165,7 +198,7 @@ export const VoiceControls = ({
 
     // Wake word detection
     if (!detectWakeWord(command)) {
-      console.log('No wake word detected');
+      console.log('No wake word detected in:', command);
       processingRef.current = false;
       setIsProcessingCommand(false);
       return;
@@ -173,7 +206,7 @@ export const VoiceControls = ({
 
     // Extract command after wake word
     let cleanCommand = command.toLowerCase();
-    ['hey vision', 'vision', 'hey guide', 'guide'].forEach(wake => {
+    ['hey vision', 'vision', 'hey guide', 'guide', 'hey fishing', 'fishing'].forEach(wake => {
       cleanCommand = cleanCommand.replace(wake, '').trim();
     });
 
@@ -212,40 +245,70 @@ export const VoiceControls = ({
 
   const handleRecognitionError = (error: any) => {
     console.log('Speech recognition error:', error);
+    
+    // Clear any existing restart timeout
+    clearRestartTimeout();
 
-    // Increment error counter
-    setErrorCount(prev => {
-      const next = prev + 1;
-      if (next >= 3) {
-        setRecognitionState('stopped');
-        onListeningChange(false);
-        setErrorMessage("Unable to access microphone or unsupported browser. Please check your microphone permissions and browser support for speech recognition.");
-        return next; // stop auto-restarting
-      }
-      return next;
-    });
-
-    if (error.error === 'aborted') {
-      setRecognitionState('stopped');
-      onListeningChange(false);
-      return;
-    }
-
+    // Handle specific error types
     if (error.error === 'not-allowed') {
       setRecognitionState('stopped');
       onListeningChange(false);
-      setErrorMessage("Microphone access denied. Please allow microphone permissions in your browser.");
+      setMicrophonePermission('denied');
+      setErrorMessage("Microphone access denied. Please allow microphone permissions in your browser settings.");
       isManualStopRef.current = true;
+      setErrorCount(0);
       return;
     }
 
-    // Previously, this code caused infinite restarts (which doesn't resolve the underlying error)
-    // Now, restart IF below error threshold only.
-    setTimeout(() => {
-      if (errorCount < 3 && !isManualStopRef.current && recognitionState === 'stopped') {
-        startRecognition();
+    if (error.error === 'aborted') {
+      console.log('Recognition aborted (manual stop)');
+      return;
+    }
+
+    if (error.error === 'no-speech') {
+      console.log('No speech detected, continuing...');
+      // Don't count as error, natural pause
+      return;
+    }
+
+    if (error.error === 'audio-capture') {
+      setErrorMessage("Audio capture error. Please check your microphone.");
+      setRecognitionState('stopped');
+      onListeningChange(false);
+      return;
+    }
+
+    if (error.error === 'network') {
+      setErrorMessage("Network error. Please check your internet connection.");
+      setRecognitionState('stopped');
+      onListeningChange(false);
+      return;
+    }
+
+    // Increment error counter for other errors
+    setErrorCount(prev => {
+      const next = prev + 1;
+      console.log(`Error count: ${next}`);
+      
+      if (next >= 5) {
+        setRecognitionState('stopped');
+        onListeningChange(false);
+        setErrorMessage("Multiple recognition errors. Please refresh the page and try again.");
+        isManualStopRef.current = true;
+        return next;
       }
-    }, 2000);
+      
+      // Restart with exponential backoff
+      const delay = Math.min(1000 * Math.pow(2, next), 10000);
+      setTimeout(() => {
+        if (!isManualStopRef.current && recognitionState === 'stopped') {
+          console.log(`Restarting recognition after ${delay}ms delay`);
+          startRecognition();
+        }
+      }, delay);
+      
+      return next;
+    });
   };
 
   const clearRestartTimeout = () => {
@@ -255,7 +318,31 @@ export const VoiceControls = ({
     }
   };
 
-  const startRecognition = () => {
+  const requestMicrophonePermission = async () => {
+    try {
+      await navigator.mediaDevices.getUserMedia({ audio: true });
+      setMicrophonePermission('granted');
+      setErrorMessage(null);
+      return true;
+    } catch (error) {
+      console.error('Microphone permission denied:', error);
+      setMicrophonePermission('denied');
+      setErrorMessage("Microphone access is required for voice commands. Please allow microphone access.");
+      return false;
+    }
+  };
+
+  const startRecognition = async () => {
+    if (!isSupported) {
+      setErrorMessage('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    if (microphonePermission === 'denied') {
+      const granted = await requestMicrophonePermission();
+      if (!granted) return;
+    }
+
     if (!recognitionRef.current || recognitionState !== 'stopped' || isManualStopRef.current) {
       return;
     }
@@ -263,12 +350,12 @@ export const VoiceControls = ({
     console.log('Starting speech recognition...');
     setRecognitionState('starting');
     clearRestartTimeout();
+    setErrorMessage(null);
     
     try {
       recognitionRef.current.start();
       resetWaitingTimeout();
-      setErrorCount(0); // reset error count if starting works
-      setErrorMessage(null); // clear errors
+      setErrorCount(0);
     } catch (error) {
       console.error('Failed to start recognition:', error);
       handleRecognitionError({ error: 'start_failed' });
@@ -291,105 +378,106 @@ export const VoiceControls = ({
     
     setRecognitionState('stopped');
     onListeningChange(false);
+    setErrorMessage(null);
   };
 
   const { isLoading: whisperLoading, transcript: whisperTranscript, error: whisperError, recordAndTranscribe } = useWhisperTranscriber();
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      const recognitionInstance = new SpeechRecognition();
+    if (!isSupported) return;
 
-      recognitionInstance.continuous = true;
-      recognitionInstance.interimResults = true;
-      recognitionInstance.lang = 'en-US';
-      recognitionInstance.maxAlternatives = 5; // Increase alternatives for more possible matches
+    const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+    const recognitionInstance = new SpeechRecognition();
 
-      // These hints are browser-specific and may not all be honored,
-      // but we offer them for best accuracy
-      if ('grammars' in recognitionInstance) {
-        // Fix: Safely access SpeechGrammarList or webkitSpeechGrammarList with proper TS check
-        const SpeechGrammarList =
-          (window as any).SpeechGrammarList ||
-          (window as any).webkitSpeechGrammarList;
-        if (SpeechGrammarList) {
-          const grammar =
-            '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
-          const speechRecognitionList = new SpeechGrammarList();
-          speechRecognitionList.addFromString(grammar, 1);
-          recognitionInstance.grammars = speechRecognitionList;
+    // Enhanced configuration for better recognition
+    recognitionInstance.continuous = true;
+    recognitionInstance.interimResults = true;
+    recognitionInstance.lang = 'en-US';
+    recognitionInstance.maxAlternatives = 3;
+
+    // Add grammar hints for better wake word detection
+    if ('grammars' in recognitionInstance) {
+      const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+      if (SpeechGrammarList) {
+        const grammar = '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
+        const speechRecognitionList = new SpeechGrammarList();
+        speechRecognitionList.addFromString(grammar, 1);
+        recognitionInstance.grammars = speechRecognitionList;
+      }
+    }
+
+    recognitionInstance.onstart = () => {
+      console.log('Speech recognition started successfully');
+      setRecognitionState('running');
+      onListeningChange(true);
+      setTranscript('');
+      isManualStopRef.current = false;
+      resetWaitingTimeout();
+      setErrorMessage(null);
+    };
+
+    recognitionInstance.onend = () => {
+      console.log('Speech recognition ended');
+      setRecognitionState('stopped');
+      onListeningChange(false);
+      
+      if (waitingTimeoutRef.current) {
+        clearTimeout(waitingTimeoutRef.current);
+      }
+      
+      // Only restart if not manually stopped and no errors
+      if (!isManualStopRef.current && errorCount < 3) {
+        restartTimeoutRef.current = setTimeout(() => {
+          if (!isManualStopRef.current) {
+            startRecognition();
+          }
+        }, 2000);
+      }
+    };
+
+    recognitionInstance.onresult = (event: any) => {
+      let finalTranscript = '';
+      let interimTranscript = '';
+      let bestConfidence = 0;
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcript = result[0].transcript;
+        const confidence = result[0].confidence || 0.5;
+        
+        if (result.isFinal) {
+          finalTranscript += transcript;
+          bestConfidence = Math.max(bestConfidence, confidence);
+        } else {
+          interimTranscript += transcript;
         }
       }
 
-      recognitionInstance.onstart = () => {
-        console.log('Speech recognition started');
-        setRecognitionState('running');
-        onListeningChange(true);
-        setTranscript('');
-        isManualStopRef.current = false;
-        resetWaitingTimeout();
-      };
+      const displayTranscript = finalTranscript || interimTranscript;
+      setTranscript(displayTranscript);
+      setConfidence(bestConfidence);
 
-      recognitionInstance.onend = () => {
-        console.log('Speech recognition ended');
-        setRecognitionState('stopped');
-        onListeningChange(false);
+      // Process final results with lower confidence threshold
+      if (finalTranscript.trim() && bestConfidence > 0.3) {
+        console.log('Final transcript:', finalTranscript, 'Confidence:', bestConfidence);
+        processVoiceCommand(finalTranscript.trim(), bestConfidence);
         
-        if (waitingTimeoutRef.current) {
-          clearTimeout(waitingTimeoutRef.current);
-        }
-        
-        if (!isManualStopRef.current) {
-          restartTimeoutRef.current = setTimeout(() => {
-            if (!isManualStopRef.current) {
-              startRecognition();
-            }
-          }, 1000);
-        }
-      };
+        setTimeout(() => {
+          setTranscript('');
+        }, 3000);
+      }
+    };
 
-      recognitionInstance.onresult = (event: any) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
-        let bestConfidence = 0;
+    recognitionInstance.onerror = handleRecognitionError;
 
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const result = event.results[i];
-          const transcript = result[0].transcript;
-          const confidence = result[0].confidence || 0.5;
-          
-          if (result.isFinal) {
-            finalTranscript += transcript;
-            bestConfidence = Math.max(bestConfidence, confidence);
-          } else {
-            interimTranscript += transcript;
-          }
-        }
-
-        const displayTranscript = finalTranscript || interimTranscript;
-        setTranscript(displayTranscript);
-        setConfidence(bestConfidence);
-
-        if (finalTranscript.trim() && bestConfidence > 0.4) {
-          processVoiceCommand(finalTranscript.trim(), bestConfidence);
-          
-          setTimeout(() => {
-            setTranscript('');
-          }, 3000);
-        }
-      };
-
-      recognitionInstance.onerror = handleRecognitionError;
-
-      recognitionRef.current = recognitionInstance;
-      
-      // Start recognition after component mounts
-      setTimeout(() => {
+    recognitionRef.current = recognitionInstance;
+    
+    // Auto-start recognition after component mounts
+    setTimeout(() => {
+      if (isSupported && microphonePermission !== 'denied') {
         startRecognition();
-      }, 500);
-    } else {
-      speakOnce('Voice recognition is not supported in this browser.');
-    }
+      }
+    }, 1000);
 
     return () => {
       clearRestartTimeout();
@@ -401,18 +489,35 @@ export const VoiceControls = ({
         recognitionRef.current.stop();
       }
     };
-  }, []);
+  }, [isSupported, microphonePermission]);
 
-  const toggleListening = () => {
+  const toggleListening = async () => {
     if (recognitionState === 'running') {
       stopRecognition();
       speakOnce('Voice recognition stopped');
     } else {
+      if (microphonePermission === 'denied') {
+        const granted = await requestMicrophonePermission();
+        if (!granted) return;
+      }
+      
       isManualStopRef.current = false;
-      startRecognition();
+      setErrorCount(0);
+      await startRecognition();
       speakOnce('Voice recognition started. Say hey vision followed by your command');
     }
   };
+
+  if (!isSupported) {
+    return (
+      <Card className="bg-red-500/20 border-red-400/30 p-6">
+        <div className="text-center">
+          <h3 className="text-xl font-semibold text-red-200 mb-2">Speech Recognition Not Supported</h3>
+          <p className="text-red-300">Please use Chrome, Edge, or Safari for voice commands.</p>
+        </div>
+      </Card>
+    );
+  }
 
   return (
     <Card className="bg-white/10 backdrop-blur-sm border-white/20 p-6">
@@ -421,18 +526,28 @@ export const VoiceControls = ({
           <Brain className="w-6 h-6 text-blue-400" />
           <h3 className="text-xl font-semibold text-white">Voice Control</h3>
         </div>
-        <p className="text-gray-300 text-sm">Real-time voice recognition with wake word detection</p>
+        <p className="text-gray-300 text-sm">Enhanced voice recognition with improved wake word detection</p>
       </div>
+
+      {/* Microphone Permission Warning */}
+      {microphonePermission === 'denied' && (
+        <div className="bg-red-500/20 border-red-400/30 rounded-lg p-3 mb-4">
+          <p className="text-red-200 text-center">
+            Microphone access denied. Please allow microphone permissions and refresh the page.
+          </p>
+        </div>
+      )}
 
       {/* Voice Control Button */}
       <div className="flex justify-center mb-6">
         <Button
           onClick={toggleListening}
+          disabled={microphonePermission === 'denied'}
           className={`${
             recognitionState === 'running'
               ? 'bg-green-500 hover:bg-green-600 animate-pulse' 
               : 'bg-red-500 hover:bg-red-600'
-          } text-white w-20 h-20 rounded-full transition-all duration-300 transform hover:scale-110`}
+          } text-white w-20 h-20 rounded-full transition-all duration-300 transform hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {recognitionState === 'running' ? (
             <Mic className="w-8 h-8" />
@@ -441,6 +556,15 @@ export const VoiceControls = ({
           )}
         </Button>
       </div>
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="bg-red-500/20 border-red-400/30 rounded-lg p-3 mb-4">
+          <p className="text-red-200 text-center text-sm">
+            {errorMessage}
+          </p>
+        </div>
+      )}
 
       {/* Waiting for Command Indicator */}
       {isWaitingForCommand && (
@@ -519,26 +643,26 @@ export const VoiceControls = ({
            recognitionState === 'starting' ? 'Starting voice recognition...' :
            'Voice recognition stopped'}
         </span>
+        {errorCount > 0 && (
+          <span className="text-yellow-300 text-xs ml-2">
+            (Errors: {errorCount})
+          </span>
+        )}
       </div>
 
-      {/* Error Message */}
-      {errorMessage && (
-        <div className="bg-red-500/20 border-red-400/30 rounded-lg p-3 mb-4">
-          <p className="text-red-200 text-center flex items-center justify-center gap-2">
-            {errorMessage}
-          </p>
+      {/* Whisper Transcription Demo */}
+      <div className="mt-6 pt-4 border-t border-white/10">
+        <div className="text-center mb-2">
+          <h4 className="text-white text-sm font-medium">Alternative: Whisper Transcription</h4>
+          <p className="text-gray-400 text-xs">Use if voice recognition is not working well</p>
         </div>
-      )}
-
-      {/* NEW: Whisper Transcription Demo */}
-      <div className="my-4">
         <div className="flex flex-col items-center">
           <Button 
             onClick={recordAndTranscribe}
             className="bg-orange-500 hover:bg-orange-600 text-white rounded-lg px-4 py-2 mb-2"
             disabled={whisperLoading}
           >
-            {whisperLoading ? "Listening (Whisper)..." : "Try Whisper Transcription"}
+            {whisperLoading ? "Recording & Processing..." : "Record with Whisper"}
           </Button>
           {whisperLoading && <div className="text-orange-200 text-sm mt-1">Recording up to 4 seconds...</div>}
           {whisperTranscript && (
