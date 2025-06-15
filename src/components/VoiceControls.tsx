@@ -9,6 +9,8 @@ declare global {
   interface Window {
     webkitSpeechRecognition: any;
     SpeechRecognition: any;
+    SpeechGrammarList: any;
+    webkitSpeechGrammarList: any;
   }
 }
 
@@ -395,14 +397,18 @@ export const VoiceControls = ({
     recognitionInstance.lang = 'en-US';
     recognitionInstance.maxAlternatives = 3;
 
-    // Add grammar hints for better wake word detection
+    // Add grammar hints for better wake word detection with proper browser support check
     if ('grammars' in recognitionInstance) {
       const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
       if (SpeechGrammarList) {
-        const grammar = '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
-        const speechRecognitionList = new SpeechGrammarList();
-        speechRecognitionList.addFromString(grammar, 1);
-        recognitionInstance.grammars = speechRecognitionList;
+        try {
+          const grammar = '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
+          const speechRecognitionList = new SpeechGrammarList();
+          speechRecognitionList.addFromString(grammar, 1);
+          recognitionInstance.grammars = speechRecognitionList;
+        } catch (error) {
+          console.log('Speech grammar not supported, continuing without it');
+        }
       }
     }
 
