@@ -40,7 +40,7 @@ export const VoiceControls = ({
   const [transcript, setTranscript] = useState('');
   const [isProcessingCommand, setIsProcessingCommand] = useState(false);
   const [confidence, setConfidence] = useState(0);
-  const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running'>('stopped');
+  const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running' | 'stopping'>('stopped');
   const [lastCommand, setLastCommand] = useState('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [microphonePermission, setMicrophonePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
@@ -51,60 +51,53 @@ export const VoiceControls = ({
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isManualStopRef = useRef(false);
   const lastProcessedRef = useRef<string>('');
+  const startingRef = useRef(false);
+  const lastStartTimeRef = useRef(0);
 
-  // Simplified and more reliable wake word patterns
-  const wakeWordPatterns = [
-    /\b(hey\s*vision|vision|guide|camera|navigate|emergency|help)\b/i,
-    /\b(start|activate|open|show|begin)\b/i,
-  ];
-
-  // Simple command patterns that work reliably
+  // Command patterns
   const commandPatterns = {
-    camera: /\b(camera|see|look|vision|view|photo|picture|detect|analyze)\b/i,
-    navigation: /\b(navigate|walk|direction|guide|route|move|go|travel|where)\b/i,
-    emergency: /\b(emergency|help|urgent|call|sos|911)\b/i,
-    settings: /\b(settings|preferences|config|adjust|volume|speed|options)\b/i,
-    status: /\b(status|mode|current|what|how|state|info)\b/i,
-    help: /\b(help|commands|what.*can|available|list)\b/i,
-    stop: /\b(stop|halt|end|quit|disable|off|pause)\b/i,
+    camera: /\b(camera|see|look|vision|view|photo|picture|detect|analyze|object|what.*see)\b/i,
+    navigation: /\b(navigate|walk|direction|guide|route|move|go|travel|where|path)\b/i,
+    emergency: /\b(emergency|help|urgent|call|sos|911|danger)\b/i,
+    settings: /\b(settings|preferences|config|adjust|volume|speed|options|setup)\b/i,
+    status: /\b(status|mode|current|what|how|state|info|tell.*me)\b/i,
+    help: /\b(help|commands|what.*can|available|list|how.*use)\b/i,
+    stop: /\b(stop|halt|end|quit|disable|off|pause|silent)\b/i,
   };
 
   const addDebugInfo = (info: string) => {
-    console.log(`[Voice Debug] ${info}`);
+    console.log(`${new Date().toLocaleTimeString()}: ${info}`);
     setDebugInfo(prev => {
       const newInfo = [...prev, `${new Date().toLocaleTimeString()}: ${info}`];
-      return newInfo.slice(-5); // Keep only last 5 debug messages
+      return newInfo.slice(-3);
     });
   };
 
-  // Check browser support and request permissions immediately
+  // Initialize voice recognition
   useEffect(() => {
     const initializeVoiceRecognition = async () => {
       addDebugInfo('Initializing voice recognition...');
       
-      // Check browser support
       const supported = 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
       setIsSupported(supported);
       
       if (!supported) {
         setErrorMessage('Speech recognition not supported. Please use Chrome, Edge, or Safari.');
-        addDebugInfo('Browser not supported');
         return;
       }
 
-      // Request microphone permission immediately
       try {
-        addDebugInfo('Requesting microphone permission...');
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop()); // Stop the test stream
+        stream.getTracks().forEach(track => track.stop());
         setMicrophonePermission('granted');
-        addDebugInfo('Microphone permission granted');
         setErrorMessage(null);
         
-        // Auto-start recognition after permission granted
+        // Auto-start after permission granted
         setTimeout(() => {
-          startRecognition();
-        }, 500);
+          if (!isManualStopRef.current) {
+            startRecognition();
+          }
+        }, 1000);
       } catch (error) {
         setMicrophonePermission('denied');
         setErrorMessage('Microphone access required. Please allow and refresh the page.');
@@ -115,11 +108,9 @@ export const VoiceControls = ({
     initializeVoiceRecognition();
   }, []);
 
-  // Process voice commands with improved logic
   const processVoiceCommand = (command: string, confidence: number) => {
     const cleanCommand = command.toLowerCase().trim();
     
-    // Prevent processing duplicate commands
     if (cleanCommand === lastProcessedRef.current || cleanCommand.length < 2) {
       return;
     }
@@ -130,10 +121,14 @@ export const VoiceControls = ({
     setIsProcessingCommand(true);
     setLastCommand(cleanCommand);
     
-    // Check for commands with simpler logic
     let commandExecuted = false;
     
-    if (commandPatterns.camera.test(cleanCommand)) {
+    if (commandPatterns.stop.test(cleanCommand)) {
+      addDebugInfo('Stop command detected');
+      stopRecognition();
+      speak('Voice recognition stopped');
+      commandExecuted = true;
+    } else if (commandPatterns.camera.test(cleanCommand)) {
       addDebugInfo('Camera command detected');
       onVoiceCommand('camera');
       onCameraAction('start');
@@ -164,11 +159,6 @@ export const VoiceControls = ({
       addDebugInfo('Help command detected');
       speak('Say camera for object detection, navigate for directions, emergency for help, or settings for preferences');
       commandExecuted = true;
-    } else if (commandPatterns.stop.test(cleanCommand)) {
-      addDebugInfo('Stop command detected');
-      stopRecognition();
-      speak('Voice recognition stopped');
-      commandExecuted = true;
     }
 
     if (!commandExecuted) {
@@ -176,19 +166,19 @@ export const VoiceControls = ({
       speak('Command not recognized. Try saying camera, navigate, emergency, settings, or help');
     }
 
-    // Reset processing state
     setTimeout(() => {
       setIsProcessingCommand(false);
       lastProcessedRef.current = '';
     }, 2000);
   };
 
-  // Improved error handling
   const handleRecognitionError = (error: any) => {
     addDebugInfo(`Recognition error: ${error.error}`);
     
+    // Clear any pending restarts
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
     }
 
     switch (error.error) {
@@ -201,23 +191,27 @@ export const VoiceControls = ({
         break;
       case 'network':
         setErrorMessage("Network error. Retrying...");
-        restartRecognition(3000);
+        scheduleRestart(3000);
         break;
       case 'audio-capture':
         setErrorMessage("Audio capture error. Check microphone.");
-        restartRecognition(2000);
+        scheduleRestart(2000);
         break;
       case 'no-speech':
+        // Don't restart on no-speech, just continue
         addDebugInfo('No speech detected, continuing...');
         break;
       default:
         addDebugInfo('Unknown error, restarting...');
-        restartRecognition(1500);
+        scheduleRestart(2000);
     }
+    
+    // Reset starting flag
+    startingRef.current = false;
   };
 
-  const restartRecognition = (delay: number) => {
-    if (!isManualStopRef.current && recognitionState !== 'running') {
+  const scheduleRestart = (delay: number) => {
+    if (!isManualStopRef.current && recognitionState !== 'running' && !startingRef.current) {
       restartTimeoutRef.current = setTimeout(() => {
         startRecognition();
       }, delay);
@@ -225,33 +219,58 @@ export const VoiceControls = ({
   };
 
   const startRecognition = () => {
-    if (!isSupported || recognitionState === 'running' || isManualStopRef.current || microphonePermission !== 'granted') {
+    const now = Date.now();
+    
+    // Prevent rapid restarts (debounce)
+    if (now - lastStartTimeRef.current < 1000) {
+      addDebugInfo('Preventing rapid restart');
+      return;
+    }
+    
+    // Check if already starting or running
+    if (startingRef.current || recognitionState === 'running' || recognitionState === 'starting') {
+      addDebugInfo(`Cannot start - current state: ${recognitionState}, starting: ${startingRef.current}`);
       return;
     }
 
-    addDebugInfo('Starting speech recognition...');
+    if (!isSupported || isManualStopRef.current || microphonePermission !== 'granted') {
+      addDebugInfo('Cannot start - not supported, manual stop, or permission denied');
+      return;
+    }
+
+    lastStartTimeRef.current = now;
+    startingRef.current = true;
     setRecognitionState('starting');
     setErrorMessage(null);
     
+    addDebugInfo('Starting speech recognition...');
+    
     try {
+      // Clean up any existing recognition
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+        recognitionRef.current = null;
       }
       
       const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
       const recognition = new SpeechRecognition();
 
-      // Optimized settings for better recognition
+      // Configure recognition
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
-      recognition.maxAlternatives = 3;
+      recognition.maxAlternatives = 1;
 
       recognition.onstart = () => {
         addDebugInfo('Speech recognition started successfully');
         setRecognitionState('running');
         onListeningChange(true);
         setTranscript('');
+        startingRef.current = false;
         isManualStopRef.current = false;
       };
 
@@ -259,9 +278,11 @@ export const VoiceControls = ({
         addDebugInfo('Speech recognition ended');
         setRecognitionState('stopped');
         onListeningChange(false);
+        startingRef.current = false;
         
-        if (!isManualStopRef.current) {
-          restartRecognition(1000);
+        // Only restart if not manually stopped and no pending restart
+        if (!isManualStopRef.current && !restartTimeoutRef.current) {
+          scheduleRestart(1500);
         }
       };
 
@@ -287,7 +308,7 @@ export const VoiceControls = ({
         setTranscript(displayTranscript);
         setConfidence(maxConfidence);
 
-        // Process final results with lower threshold for better responsiveness
+        // Process final results
         if (finalTranscript && finalTranscript.length > 1) {
           addDebugInfo(`Final transcript: "${finalTranscript}" (confidence: ${maxConfidence})`);
           processVoiceCommand(finalTranscript, maxConfidence);
@@ -297,6 +318,7 @@ export const VoiceControls = ({
       };
 
       recognition.onerror = handleRecognitionError;
+      
       recognitionRef.current = recognition;
       recognition.start();
       
@@ -304,28 +326,40 @@ export const VoiceControls = ({
       addDebugInfo(`Failed to start recognition: ${error}`);
       setErrorMessage("Failed to start voice recognition. Please try again.");
       setRecognitionState('stopped');
+      startingRef.current = false;
     }
   };
 
   const stopRecognition = () => {
     isManualStopRef.current = true;
+    startingRef.current = false;
     addDebugInfo('Stopping recognition manually');
     
+    // Clear any pending restarts
     if (restartTimeoutRef.current) {
       clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
     }
     
     if (recognitionRef.current && recognitionState !== 'stopped') {
-      recognitionRef.current.stop();
+      setRecognitionState('stopping');
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        addDebugInfo(`Error stopping recognition: ${error}`);
+      }
     }
     
-    setRecognitionState('stopped');
-    onListeningChange(false);
-    setErrorMessage(null);
+    // Force state update
+    setTimeout(() => {
+      setRecognitionState('stopped');
+      onListeningChange(false);
+      setErrorMessage(null);
+    }, 500);
   };
 
   const toggleListening = () => {
-    if (recognitionState === 'running') {
+    if (recognitionState === 'running' || recognitionState === 'starting') {
       stopRecognition();
       speak('Voice recognition stopped');
     } else {
@@ -345,12 +379,19 @@ export const VoiceControls = ({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      isManualStopRef.current = true;
+      startingRef.current = false;
+      
       if (restartTimeoutRef.current) {
         clearTimeout(restartTimeoutRef.current);
       }
+      
       if (recognitionRef.current) {
-        isManualStopRef.current = true;
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // Ignore cleanup errors
+        }
       }
     };
   }, []);
@@ -398,6 +439,8 @@ export const VoiceControls = ({
           className={`${
             recognitionState === 'running'
               ? 'bg-green-500 hover:bg-green-600 animate-pulse' 
+              : recognitionState === 'starting'
+              ? 'bg-yellow-500 hover:bg-yellow-600 animate-pulse'
               : 'bg-red-500 hover:bg-red-600'
           } text-white w-20 h-20 rounded-full transition-all duration-300 transform hover:scale-110`}
         >
@@ -454,7 +497,7 @@ export const VoiceControls = ({
       {/* Debug Information */}
       {debugInfo.length > 0 && (
         <div className="bg-gray-500/20 border-gray-400/30 rounded-lg p-3 mb-4">
-          <h4 className="text-gray-200 text-sm font-medium mb-2">Debug Info:</h4>
+          <h4 className="text-gray-200 text-sm font-medium mb-2">Status:</h4>
           {debugInfo.map((info, index) => (
             <p key={index} className="text-gray-300 text-xs">{info}</p>
           ))}
