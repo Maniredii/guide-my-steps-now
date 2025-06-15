@@ -42,11 +42,10 @@ const TESSERACT_LANGUAGES: { [key: string]: { label: string; tesseract: string }
   "ru":   { label: "Russian (Русский)", tesseract: "rus" },
   "ar":   { label: "Arabic (العربية)", tesseract: "ara" },
   "pt":   { label: "Portuguese (Português)", tesseract: "por" },
-  "it":   { label: "Italian (Italiano)", tesseract: "ita" }
+  "it":   { label: "Italian (Italiano)", tesseract: "ita" },
   // Add more as tested
 };
 
-// Mapping from BCP-47 language code to Tesseract code(s)
 const LANG_MAP: { code: string; tesseract: string; label: string }[] = [
   { code: "en-US", tesseract: "eng", label: "English (US)" },
   { code: "hi-IN", tesseract: "hin", label: "Hindi (हिन्दी)" },
@@ -76,33 +75,42 @@ const LANG_MAP: { code: string; tesseract: string; label: string }[] = [
   { code: "it-IT", tesseract: "ita", label: "Italian (Italiano)" }
 ];
 
-function findSystemTTSSupportedCodes(): Promise<string[]> {
-  // Gets device-supported TTS BCP-47 codes
+// Detects browser TTS languages and root codes as well
+function findSystemTTSCodes(): Promise<string[]> {
   return new Promise(resolve => {
     if (!window.speechSynthesis) return resolve([]);
     let voices = window.speechSynthesis.getVoices();
     if (voices.length > 0) {
-      resolve(Array.from(new Set(voices.map(v => v.lang))));
+      resolve(voices.map(v => v.lang));
     } else {
-      // Safari loads voices asynchronously
+      // Safari loads voices async
       window.speechSynthesis.onvoiceschanged = () => {
         voices = window.speechSynthesis.getVoices();
-        resolve(Array.from(new Set(voices.map(v => v.lang))));
+        resolve(voices.map(v => v.lang));
       };
-      // fallback: after 1s still no voices, just resolve empty (user can retry)
-      setTimeout(() => resolve(Array.from(new Set(window.speechSynthesis.getVoices().map(v => v.lang)))), 1000);
+      // fallback: after 1s still no voices, just resolve
+      setTimeout(() => resolve(window.speechSynthesis.getVoices().map(v => v.lang)), 1000);
     }
   });
 }
 
 export async function getLanguageOptions(): Promise<LanguageOption[]> {
-  const ttsCodes = await findSystemTTSSupportedCodes();
+  const ttsCodes = await findSystemTTSCodes();
+  // Also add base codes for more permissive matching (e.g., "hi" from "hi-IN")
+  const ttsRoots = [...new Set(ttsCodes.map(code => code.split('-')[0]))];
 
-  return LANG_MAP.map(opt => ({
-    label: opt.label,
-    code: opt.code,
-    tesseract: opt.tesseract,
-    ttsSupported: ttsCodes.includes(opt.code) || ttsCodes.some(code => code.startsWith(opt.code.split('-')[0])),
-    ocrSupported: !!TESSERACT_LANGUAGES[opt.tesseract]
-  })).filter(opt => opt.ocrSupported || opt.ttsSupported);
+  // Include a language as TTS-supported if there is *any* browser voice which matches its root code
+  return LANG_MAP.map(opt => {
+    const optRoot = opt.code.split('-')[0];
+    // Permit both exact match and root match (helps with hi/hi-IN, etc)
+    const hasTTS = ttsCodes.includes(opt.code) || ttsRoots.includes(optRoot);
+    const hasOCR = !!TESSERACT_LANGUAGES[opt.tesseract];
+    return {
+      label: opt.label,
+      code: opt.code,
+      tesseract: opt.tesseract,
+      ttsSupported: hasTTS,
+      ocrSupported: hasOCR
+    };
+  }).filter(opt => opt.ocrSupported || opt.ttsSupported);
 }
