@@ -44,10 +44,12 @@ const Index = () => {
   // Voice command handler
   const handleVoiceCommand = (command: string) => {
     const lowerCommand = command.toLowerCase();
-    
+
     if (lowerCommand.includes('camera') || lowerCommand.includes('see')) {
       setActiveMode('camera');
+      setCameraActive(true); // <<----- THIS ENSURES CAMERA OPENS!
       speak('Camera mode activated. I will describe what I see around you.');
+      console.log('[VoiceCommand] Switched to camera mode and activated camera.');
     } else if (lowerCommand.includes('navigate') || lowerCommand.includes('walk')) {
       setActiveMode('navigation');
       speak('Navigation mode activated. I will guide your steps.');
