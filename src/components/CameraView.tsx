@@ -1,5 +1,5 @@
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import { Camera, Eye, AlertTriangle, Users, Car, TreePine, Volume2, Loader } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -29,12 +29,17 @@ export const CameraView = ({
   // Use YOLO object detection
   const { detections, isLoading } = useYOLODetection(videoRef, isActive);
 
+  // Memoize the speak function to prevent unnecessary re-renders
+  const speakCallback = useCallback(speak, []);
+
   // When detected objects change, show labels and give spoken description
   useEffect(() => {
     if (!isActive || detections.length === 0) {
       if (isActive && !isLoading) {
         onDetectedObjects([]);
-        setLastDescription('No objects detected at the moment.');
+        if (lastDescription !== 'No objects detected at the moment.') {
+          setLastDescription('No objects detected at the moment.');
+        }
       }
       return;
     }
@@ -48,11 +53,13 @@ export const CameraView = ({
       description = "I can see " + uniqueLabels.slice(0, 3).join(", ") + ".";
     }
     
-    setLastDescription(description);
-    speak(description);
-  }, [detections, isActive, isLoading, onDetectedObjects, speak]);
+    if (description !== lastDescription) {
+      setLastDescription(description);
+      speakCallback(description);
+    }
+  }, [detections, isActive, isLoading, onDetectedObjects, lastDescription, speakCallback]);
 
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({ 
         video: { 
@@ -66,30 +73,32 @@ export const CameraView = ({
         videoRef.current.srcObject = mediaStream;
       }
       onActiveChange(true);
-      speak('Camera activated. Loading YOLO object detection model...');
+      speakCallback('Camera activated. Loading YOLO object detection model...');
     } catch (error) {
-      speak('Unable to access camera. Please check permissions.');
+      speakCallback('Unable to access camera. Please check permissions.');
       toast.error('Camera access denied');
     }
-  };
+  }, [onActiveChange, speakCallback]);
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
       setStream(null);
     }
     onActiveChange(false);
-    speak('Camera stopped.');
-  };
+    speakCallback('Camera stopped.');
+  }, [stream, onActiveChange, speakCallback]);
 
+  // Handle camera activation/deactivation - Fixed to prevent infinite loop
   useEffect(() => {
     if (isActive && !stream) {
       startCamera();
-    } else if (!isActive && stream) {
-      stopCamera();
     }
-  }, [isActive]);
+    // Note: We don't auto-stop camera when isActive becomes false
+    // This should be handled by the parent component calling stopCamera explicitly
+  }, [isActive, stream, startCamera]);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (stream) {
@@ -115,7 +124,7 @@ export const CameraView = ({
               : 'bg-green-500 hover:bg-green-600'
           } text-white px-8 py-4 text-lg`}
           disabled={isLoading}
-          onFocus={() => speak(isActive ? 'Stop camera' : 'Start camera')}
+          onFocus={() => speakCallback(isActive ? 'Stop camera' : 'Start camera')}
         >
           {isLoading ? (
             <Loader className="w-6 h-6 mr-2 animate-spin" />
@@ -203,7 +212,7 @@ export const CameraView = ({
           <h3 className="text-lg font-semibold text-blue-200 mb-2">Latest YOLO Detection:</h3>
           <p className="text-white">{lastDescription}</p>
           <Button
-            onClick={() => speak(lastDescription)}
+            onClick={() => speakCallback(lastDescription)}
             className="mt-3 bg-blue-500 hover:bg-blue-600 text-white"
           >
             <Volume2 className="w-4 h-4 mr-2" />
