@@ -140,9 +140,9 @@ const Index = () => {
   };
 
   useEffect(() => {
-    // Welcome message when app loads
+    // Update: ONLY speak "Welcome to Vision Guide" on load
     setTimeout(() => {
-      speak('Welcome to Vision Guide, your personal assistant for the visually impaired. Say Hey Vision Help to hear all available commands. I am here to help you navigate safely using voice commands only.');
+      speak("Welcome to Vision Guide");
     }, 1000);
   }, []);
 
