@@ -171,6 +171,29 @@ const Index = () => {
     }
   };
 
+  // Track last announced language to avoid repeat toasts/announcements
+  const lastAnnouncedLang = useRef<string>("");
+
+  useEffect(() => {
+    if (lastAnnouncedLang.current === ttsLang) return;
+    const lang = languageOptions.find(opt => opt.code === ttsLang);
+    if (lang) {
+      let supportMsg = "";
+      if (lang.ttsSupported && lang.ocrSupported) {
+        supportMsg = `${lang.label} supports both voice (TTS) and text recognition (OCR).`;
+      } else if (lang.ttsSupported) {
+        supportMsg = `${lang.label} supports voice (TTS) only.`;
+      } else if (lang.ocrSupported) {
+        supportMsg = `${lang.label} supports text recognition (OCR) only.`;
+      } else {
+        supportMsg = `${lang.label} has no speech or text support.`;
+      }
+      toast.info(supportMsg, { duration: 4000 });
+      speak(supportMsg);
+      lastAnnouncedLang.current = ttsLang;
+    }
+  }, [ttsLang, languageOptions]);
+
   useEffect(() => {
     // Update: ONLY speak "Welcome to Vision Guide" on load
     setTimeout(() => {
@@ -250,14 +273,28 @@ const Index = () => {
           >
             {languageOptions.map(opt => (
               <option value={opt.code} key={opt.code}>
+                {/* Add emoji/flag and support indicator */}
+                {(() => {
+                  // Add emoji/flag for major Indian languages
+                  if (/telugu/i.test(opt.label)) return "🇮🇳 ";
+                  if (/tamil/i.test(opt.label)) return "🇮🇳 ";
+                  if (/hindi/i.test(opt.label)) return "🇮🇳 ";
+                  if (/malayalam/i.test(opt.label)) return "🇮🇳 ";
+                  if (/en/i.test(opt.code)) return "🇬🇧 ";
+                  if (/fr/i.test(opt.code)) return "🇫🇷 ";
+                  if (/es/i.test(opt.code)) return "🇪🇸 ";
+                  if (/de/i.test(opt.code)) return "🇩🇪 ";
+                  return "";
+                })()}
                 {opt.label}
+                {" "}
                 {opt.ttsSupported && opt.ocrSupported
-                  ? " (TTS + OCR)"
+                  ? "🟢 TTS+OCR"
                   : opt.ttsSupported
-                  ? " (TTS only)"
+                  ? "🟢 TTS"
                   : opt.ocrSupported
-                  ? " (OCR only)"
-                  : ""}
+                  ? "🟡 OCR"
+                  : "🔴"}
               </option>
             ))}
           </select>
