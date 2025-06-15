@@ -22,7 +22,7 @@ interface VoiceControlsProps {
   onEmergencyAction: (action: string) => void;
 }
 
-export const VoiceControls = ({ 
+export const VoiceControls = ({
   isListening, 
   onListeningChange, 
   onVoiceCommand, 
@@ -54,14 +54,13 @@ export const VoiceControls = ({
   const detectWakeWord = (text: string): boolean => {
     const lowerText = text.toLowerCase();
     const wakeWords = [
-      'hey vision', 'vision', 'hey guide', 'guide', 
-      'hay vision', 'division', 'revision'
+      'hey vision', 'vision', 'hey guide', 'guide', 'hey division', 'division', 'revision', 'havision', 'hey vis', 'hei vision', 'a vision', 'evision'
     ];
-    
-    return wakeWords.some(wake => 
-      lowerText.includes(wake) || 
-      calculateSimilarity(lowerText, wake) > 0.7
-    );
+    // Accepts if any word in phrase is in the wakeWords set, or Levenshtein similarity > 0.6
+    return wakeWords.some(wake =>
+      lowerText.includes(wake) ||
+      calculateSimilarity(lowerText, wake) > 0.6
+    ) || lowerText.replace(/[^a-z]/g,"").startsWith('vision') // Accept trailing/partial
   };
 
   // Simple similarity calculation
@@ -297,12 +296,29 @@ export const VoiceControls = ({
     if (typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
       const recognitionInstance = new SpeechRecognition();
-      
+
       recognitionInstance.continuous = true;
       recognitionInstance.interimResults = true;
       recognitionInstance.lang = 'en-US';
-      recognitionInstance.maxAlternatives = 3;
-      
+      recognitionInstance.maxAlternatives = 5; // Increase alternatives for more possible matches
+
+      // These hints are browser-specific and may not all be honored,
+      // but we offer them for best accuracy
+      if ('grammars' in recognitionInstance) {
+        // 'grammars' is not widely supported but let's try to bias for "hey vision", common commands, etc
+        // This code just shows intent; most browsers ignore these hints
+        const SpeechGrammarList =
+          window.SpeechGrammarList ||
+          (window as any).webkitSpeechGrammarList;
+        if (SpeechGrammarList) {
+          const grammar =
+            '#JSGF V1.0; grammar commands; public <command> = hey vision | vision | camera | navigate | emergency | settings | help | status ;';
+          var speechRecognitionList = new SpeechGrammarList();
+          speechRecognitionList.addFromString(grammar, 1);
+          recognitionInstance.grammars = speechRecognitionList;
+        }
+      }
+
       recognitionInstance.onstart = () => {
         console.log('Speech recognition started');
         setRecognitionState('running');

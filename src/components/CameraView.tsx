@@ -20,81 +20,112 @@ export const CameraView = ({ speak, detectedObjects, onDetectedObjects, isActive
 
   // Improved: Weighted object detection for more plausible results
   const simulateObjectDetection = () => {
-    // Each object has: name, distance, warning, weight (probability of appearing)
+    // Add more real-world objects, edge-cases, and co-occurrences
     const possibleObjects = [
-      // Urban/Outdoor
+      // --- Urban/Outdoor
       { name: 'person walking', distance: '2 meters ahead', warning: false, weight: 30 },
       { name: 'child standing', distance: '5 meters to your left', warning: false, weight: 10 },
-      { name: 'dog', distance: '2 meters held by owner', warning: false, weight: 14 },
-      { name: 'bicycle parked', distance: '3 meters ahead', warning: false, weight: 9 },
-      { name: 'bicycle moving', distance: 'quickly passing by on right', warning: true, weight: 7 },
-      { name: 'runner jogging', distance: '8 meters behind', warning: false, weight: 8 },
-      { name: 'group of people', distance: 'standing 6 meters ahead', warning: false, weight: 12 },
-      { name: 'traffic cone', distance: 'on the path 7 meters ahead', warning: true, weight: 6 },
-      { name: 'road sign', distance: '3 meters to your right', warning: false, weight: 6 },
-      { name: 'crosswalk', distance: '10 meters ahead', warning: false, weight: 4 },
-      { name: 'fire hydrant', distance: 'beside the path 2 meters ahead', warning: false, weight: 4 },
-      { name: 'car', distance: '9 meters ahead', warning: true, weight: 14 },
-      { name: 'moving car', distance: 'approaching from left', warning: true, weight: 6 },
-      { name: 'bus', distance: '15 meters stopped', warning: false, weight: 2 },
-      { name: 'open door', distance: '1 meter ahead', warning: false, weight: 5 },
-      { name: 'stairs going up', distance: '7 meters ahead', warning: true, weight: 5 },
-      { name: 'stairs going down', distance: 'nearby', warning: true, weight: 2 },
-      { name: 'glass door', distance: 'right ahead', warning: true, weight: 2 },
-      { name: 'construction barrier', distance: 'blocking path', warning: true, weight: 2 },
-      { name: 'pothole', distance: 'on path, 2 meters ahead', warning: true, weight: 2 },
-      { name: 'wheelchair ramp', distance: 'beside stairs', warning: false, weight: 1 },
-      { name: 'streetlight', distance: 'overhead', warning: false, weight: 2 },
-      { name: 'bench', distance: '2 meters behind', warning: false, weight: 7 },
-      { name: 'lamp post', distance: 'to your left', warning: false, weight: 7 },
-      { name: 'trash can', distance: 'next to bench', warning: false, weight: 4 },
-      { name: 'stop sign', distance: '10 meters ahead', warning: false, weight: 3 },
-      { name: 'trash bin', distance: 'right side', warning: false, weight: 2 },
-      // Indoor
-      { name: 'door', distance: 'right ahead', warning: false, weight: 10 },
-      { name: 'steps up', distance: 'just in front', warning: true, weight: 2 },
+      { name: 'dog', distance: '2 meters held by owner', warning: false, weight: 17 },
+      { name: 'bicycle parked', distance: '3 meters ahead', warning: false, weight: 10 },
+      { name: 'bicycle moving', distance: 'quickly passing by on right', warning: true, weight: 8 },
+      { name: 'runner jogging', distance: '8 meters behind', warning: false, weight: 9 },
+      { name: 'group of people', distance: 'standing 6 meters ahead', warning: false, weight: 15 },
+      { name: 'elderly person with cane', distance: 'slowly approaching', warning: false, weight: 5 },
+      { name: 'child on scooter', distance: '5 meters ahead', warning: true, weight: 3 },
+      { name: 'man using phone', distance: 'next to crosswalk', warning: false, weight: 3 },
+      { name: 'wheelchair user', distance: 'to your right', warning: false, weight: 3 },
+      { name: 'traffic cone', distance: 'on the path 7 meters ahead', warning: true, weight: 10 },
+      { name: 'road sign', distance: '3 meters to your right', warning: false, weight: 9 },
+      { name: 'crosswalk', distance: '10 meters ahead', warning: false, weight: 8 },
+      { name: 'street performer', distance: 'by building entrance', warning: false, weight: 3 },
+      { name: 'fire hydrant', distance: 'beside the path 2 meters ahead', warning: false, weight: 5 },
+      { name: 'car', distance: '9 meters ahead', warning: true, weight: 18 },
+      { name: 'moving car', distance: 'approaching from left', warning: true, weight: 9 },
+      { name: 'bus', distance: '15 meters stopped', warning: false, weight: 3 },
+      { name: 'open door', distance: '1 meter ahead', warning: false, weight: 6 },
+      { name: 'broken pavement', distance: 'by edge', warning: true, weight: 3 },
+      { name: 'stairs going up', distance: '7 meters ahead', warning: true, weight: 7 },
+      { name: 'stairs going down', distance: 'nearby', warning: true, weight: 4 },
+      { name: 'glass door', distance: 'right ahead', warning: true, weight: 4 },
+      { name: 'construction barrier', distance: 'blocking path', warning: true, weight: 3 },
+      { name: 'pothole', distance: 'on path, 2 meters ahead', warning: true, weight: 3 },
+      { name: 'wheelchair ramp', distance: 'beside stairs', warning: false, weight: 2 },
+      { name: 'streetlight', distance: 'overhead', warning: false, weight: 3 },
+      { name: 'bench', distance: '2 meters behind', warning: false, weight: 8 },
+      { name: 'lamp post', distance: 'to your left', warning: false, weight: 8 },
+      { name: 'trash can', distance: 'next to bench', warning: false, weight: 5 },
+      { name: 'stop sign', distance: '10 meters ahead', warning: false, weight: 5 },
+      { name: 'trash bin', distance: 'right side', warning: false, weight: 3 },
+      // --- Indoor
+      { name: 'door', distance: 'right ahead', warning: false, weight: 12 },
+      { name: 'steps up', distance: 'just in front', warning: true, weight: 3 },
+      { name: 'steps down', distance: 'to your left', warning: true, weight: 2 },
       { name: 'chair', distance: 'at 3 meters', warning: false, weight: 9 },
-      { name: 'table', distance: 'centered', warning: false, weight: 7 },
-      { name: 'wall', distance: 'close right side', warning: false, weight: 12 },
-      { name: 'window', distance: 'on your left', warning: false, weight: 8 },
-      // Nature
-      { name: 'tree', distance: '4 meters to your right', warning: false, weight: 20 },
-      { name: 'flower bush', distance: '3 meters left', warning: false, weight: 4 },
-      { name: 'open grass area', distance: 'ahead', warning: false, weight: 3 },
-      { name: 'lake', distance: 'far right', warning: false, weight: 1 },
-      { name: 'bird', distance: 'on ground nearby', warning: false, weight: 6 },
-      // Misc/Edge
-      { name: 'empty path', distance: '', warning: false, weight: 21 },
-      { name: 'sidewalk continues', distance: '', warning: false, weight: 14 },
-      { name: 'sign post', distance: '3 meters to your right', warning: false, weight: 5 },
-      { name: 'child on scooter', distance: '5 meters ahead', warning: true, weight: 2 },
+      { name: 'table', distance: 'centered', warning: false, weight: 8 },
+      { name: 'wall', distance: 'close right side', warning: false, weight: 15 },
+      { name: 'window', distance: 'on your left', warning: false, weight: 10 },
+      { name: 'elevator', distance: 'ahead', warning: false, weight: 2 },
+      { name: 'shopping bag', distance: 'in corridor', warning: false, weight: 2 },
+      // --- Nature
+      { name: 'tree', distance: '4 meters to your right', warning: false, weight: 30 },
+      { name: 'flower bush', distance: '3 meters left', warning: false, weight: 6 },
+      { name: 'open grass area', distance: 'ahead', warning: false, weight: 4 },
+      { name: 'lake', distance: 'far right', warning: false, weight: 2 },
+      { name: 'puddle', distance: 'on the path', warning: true, weight: 3 },
+      { name: 'bird', distance: 'on ground nearby', warning: false, weight: 10 },
+      // --- Misc/Edge
+      { name: 'empty path', distance: '', warning: false, weight: 22 },
+      { name: 'sidewalk continues', distance: '', warning: false, weight: 17 },
+      { name: 'sign post', distance: '3 meters to your right', warning: false, weight: 7 },
+      { name: 'cat', distance: 'on the sidewalk', warning: false, weight: 5 },
+      { name: 'dog leash', distance: 'across the path', warning: true, weight: 2 },
+      { name: 'shopping cart', distance: 'by store entrance', warning: false, weight: 2 },
+      { name: 'delivery robot', distance: 'crossing path', warning: false, weight: 2 },
+      { name: 'electric scooter', distance: '2 meters ahead', warning: true, weight: 3 },
+      { name: 'street vendor', distance: 'next to food truck', warning: false, weight: 2 },
+      { name: 'baby stroller', distance: 'pushed by someone', warning: false, weight: 2 },
+      { name: 'shopping trolley', distance: 'approaching checkout', warning: false, weight: 1 },
+      // --- Environment
+      { name: 'cloud shadow', distance: 'over the road', warning: false, weight: 2 },
+      { name: 'dog walker', distance: 'on opposite curb', warning: false, weight: 3 },
+      { name: 'trash collection bin', distance: 'on left', warning: false, weight: 2 },
+      { name: 'street musician', distance: 'by bus stop', warning: false, weight: 1 },
+      // --- Transportation
+      { name: 'tram', distance: 'in distance', warning: false, weight: 2 },
       { name: 'motorcycle', distance: 'passing by', warning: true, weight: 2 },
-      { name: 'cat', distance: 'on the sidewalk', warning: false, weight: 3 },
-      { name: 'dog leash', distance: 'across the path', warning: true, weight: 1 },
-      { name: 'shopping cart', distance: 'by store entrance', warning: false, weight: 1 },
-      { name: 'delivery robot', distance: 'crossing path', warning: false, weight: 1 },
-      { name: 'electric scooter', distance: '2 meters ahead', warning: true, weight: 1 },
-      // Add more "real-world" objects below as needed to further expand realism
+      { name: 'truck', distance: 'parked', warning: false, weight: 3 },
+      { name: 'van', distance: 'on side street', warning: false, weight: 2 },
+      { name: 'skateboarder', distance: 'quickly approaching', warning: true, weight: 1 },
     ];
 
-    // Weighted random selection (same logic as previous)
-    const objectsToShow = [];
-    const maxObjects = 2 + Math.round(Math.random()); // 2-3 objects per scan
+    // Pseudo-grouping by context
     const pool = possibleObjects.flatMap(obj => Array(obj.weight).fill(obj));
+    const maxObjects = 2 + Math.round(Math.random() * 2); // 2-4 objects to simulate a real scene
+    const objectsToShow: typeof possibleObjects = [];
 
-    while (objectsToShow.length < maxObjects && pool.length > 0) {
+    while (objectsToShow.length < maxObjects && pool.length) {
       const idx = Math.floor(Math.random() * pool.length);
       const candidate = pool[idx];
-      // Avoid repeating the same object in one detection
-      if (!objectsToShow.some(o => o.name === candidate.name)) {
+      // Prefer contextually plausible grouping: e.g., a "crosswalk" with "stop sign" and "moving car"
+      if (
+        objectsToShow.length === 1 &&
+        (candidate.name.includes('car') && objectsToShow.some(o => o.name.includes('crosswalk')))
+      ) {
+        objectsToShow.unshift(candidate); // Push car before crosswalk if possible
+      } else if (
+        objectsToShow.some(o => o.name === candidate.name)
+      ) {
+        // No duplicates
+        pool.splice(idx, 1);
+        continue;
+      } else {
         objectsToShow.push(candidate);
       }
-      // Remove all copies of this object from the pool
+      // Remove all copies
       for (let i = pool.length - 1; i >= 0; i--) {
         if (pool[i].name === candidate.name) pool.splice(i, 1);
       }
     }
-
     return objectsToShow;
   };
 
