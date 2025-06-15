@@ -8,6 +8,9 @@ import { VoiceControls } from '@/components/VoiceControls';
 import { NavigationGuide } from '@/components/NavigationGuide';
 import { EmergencyPanel } from '@/components/EmergencyPanel';
 import { SettingsPanel } from '@/components/SettingsPanel';
+import { OCRReader } from "@/components/OCRReader";
+import { PathDemo } from "@/components/PathDemo";
+import { downloadLogs, addLog } from "@/utils/logs";
 
 const Index = () => {
   const [activeMode, setActiveMode] = useState<'camera' | 'navigation' | 'emergency' | 'settings'>('camera');
@@ -16,7 +19,11 @@ const Index = () => {
   const [detectedObjects, setDetectedObjects] = useState<string[]>([]);
   const [cameraActive, setCameraActive] = useState(false);
   const [navigationActive, setNavigationActive] = useState(false);
-  
+  const videoElementRef = useRef<HTMLVideoElement | null>(null);
+  const [showOcr, setShowOcr] = useState(false);
+  const [simMode, setSimMode] = useState(false);
+  const [ttsLang, setTtsLang] = useState("en-US");
+
   // Voice settings state
   const [voiceSettings, setVoiceSettings] = useState({
     rate: 0.8,
@@ -30,6 +37,7 @@ const Index = () => {
     if ('speechSynthesis' in window && voiceSettings.enabled) {
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = ttsLang;
       utterance.rate = voiceSettings.rate;
       utterance.pitch = voiceSettings.pitch;
       utterance.volume = voiceSettings.volume;
@@ -38,6 +46,7 @@ const Index = () => {
       utterance.onend = () => setIsSpeaking(false);
       
       window.speechSynthesis.speak(utterance);
+      addLog(`[TTS]: ${text}`);
     }
   };
 
@@ -145,6 +154,7 @@ const Index = () => {
     // Update: ONLY speak "Welcome to Vision Guide" on load
     setTimeout(() => {
       speak("Welcome to Vision Guide");
+      addLog("App started. Welcome message spoken.");
     }, 1000);
   }, []);
 
@@ -197,6 +207,47 @@ const Index = () => {
       </div>
 
       <div className="container mx-auto p-4 space-y-6">
+        {/* App Controls */}
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <Button className="bg-red-600 text-white" onClick={() => speak("Emergency button pressed. SOS initiated.")}>
+            SOS
+          </Button>
+          <Button className="bg-green-600" onClick={() => setShowOcr(x => !x)}>
+            {showOcr ? "Hide OCR Scanner" : "Read Sign or Document"}
+          </Button>
+          <Button className="bg-blue-500" onClick={() => setSimMode(x => !x)}>
+            {simMode ? "Exit Test Mode" : "Enter Test Mode"}
+          </Button>
+          <Button className="bg-gray-700" onClick={downloadLogs}>
+            Download Logs
+          </Button>
+          <select
+            value={ttsLang}
+            onChange={e => setTtsLang(e.target.value)}
+            className="ml-2 bg-black text-white border p-1 rounded"
+            aria-label="Select language"
+          >
+            <option value="en-US">English</option>
+            <option value="es-ES">Español</option>
+          </select>
+        </div>
+
+        {/* Simulation Path/Env Demo */}
+        {simMode && (
+          <PathDemo
+            speak={speak}
+            onSimulateObstacle={type => {
+              if (type === "stairs") setActiveMode("navigation");
+              else if (type === "pole") setActiveMode("camera");
+              else if (type === "door") setActiveMode("navigation");
+              else if (type === "path") setActiveMode("navigation");
+            }}
+          />
+        )}
+
+        {/* OCR Reader */}
+        {showOcr && <OCRReader speak={speak} lang={ttsLang.startsWith("es") ? "spa" : "eng"} />}
+
         {/* Voice Controls - Always visible and primary interface */}
         <VoiceControls
           isListening={isListening}
