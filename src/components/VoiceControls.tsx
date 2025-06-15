@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -40,7 +39,9 @@ export const VoiceControls = ({
   const [recognitionState, setRecognitionState] = useState<'stopped' | 'starting' | 'running'>('stopped');
   const [lastCommand, setLastCommand] = useState('');
   const [isWaitingForCommand, setIsWaitingForCommand] = useState(false);
-  
+  const [errorMessage, setErrorMessage] = useState<string | null>(null); // track error display
+  const [errorCount, setErrorCount] = useState(0); // handle persistent errors
+
   const recognitionRef = useRef<any>(null);
   const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isManualStopRef = useRef(false);
@@ -211,33 +212,40 @@ export const VoiceControls = ({
 
   const handleRecognitionError = (error: any) => {
     console.log('Speech recognition error:', error);
-    
+
+    // Increment error counter
+    setErrorCount(prev => {
+      const next = prev + 1;
+      if (next >= 3) {
+        setRecognitionState('stopped');
+        onListeningChange(false);
+        setErrorMessage("Unable to access microphone or unsupported browser. Please check your microphone permissions and browser support for speech recognition.");
+        return next; // stop auto-restarting
+      }
+      return next;
+    });
+
     if (error.error === 'aborted') {
+      setRecognitionState('stopped');
+      onListeningChange(false);
       return;
     }
-    
-    setRecognitionState('stopped');
-    onListeningChange(false);
-    
-    if (waitingTimeoutRef.current) {
-      clearTimeout(waitingTimeoutRef.current);
-    }
-    
+
     if (error.error === 'not-allowed') {
-      speakOnce('Microphone access denied. Please allow microphone permissions.');
+      setRecognitionState('stopped');
+      onListeningChange(false);
+      setErrorMessage("Microphone access denied. Please allow microphone permissions in your browser.");
       isManualStopRef.current = true;
       return;
     }
-    
-    // Auto-restart after error with delay
-    if (!isManualStopRef.current) {
-      clearRestartTimeout();
-      restartTimeoutRef.current = setTimeout(() => {
-        if (!isManualStopRef.current && recognitionState === 'stopped') {
-          startRecognition();
-        }
-      }, 2000);
-    }
+
+    // Previously, this code caused infinite restarts (which doesn't resolve the underlying error)
+    // Now, restart IF below error threshold only.
+    setTimeout(() => {
+      if (errorCount < 3 && !isManualStopRef.current && recognitionState === 'stopped') {
+        startRecognition();
+      }
+    }, 2000);
   };
 
   const clearRestartTimeout = () => {
@@ -259,6 +267,8 @@ export const VoiceControls = ({
     try {
       recognitionRef.current.start();
       resetWaitingTimeout();
+      setErrorCount(0); // reset error count if starting works
+      setErrorMessage(null); // clear errors
     } catch (error) {
       console.error('Failed to start recognition:', error);
       handleRecognitionError({ error: 'start_failed' });
@@ -492,6 +502,15 @@ export const VoiceControls = ({
            'Voice recognition stopped'}
         </span>
       </div>
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="bg-red-500/20 border-red-400/30 rounded-lg p-3 mb-4">
+          <p className="text-red-200 text-center flex items-center justify-center gap-2">
+            {errorMessage}
+          </p>
+        </div>
+      )}
     </Card>
   );
 };
