@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useRef } from 'react';
 import { Mic, MicOff, Volume2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -54,13 +53,13 @@ export const VoiceControls = ({
   const startingRef = useRef(false);
   const lastStartTimeRef = useRef(0);
 
-  // Command patterns
+  // Command patterns - made them stricter and mutually exclusive
   const commandPatterns = {
-    camera: /\b(camera|see|look|vision|view|photo|picture|detect|analyze|object|what.*see)\b/i,
+    camera: /\b(camera|see|look|vision|view|photo|picture|detect|analyze|object|what (?:do you |can you )?see)\b/i,
     navigation: /\b(navigate|walk|direction|guide|route|move|go|travel|where|path)\b/i,
     emergency: /\b(emergency|help|urgent|call|sos|911|danger)\b/i,
     settings: /\b(settings|preferences|config|adjust|volume|speed|options|setup)\b/i,
-    status: /\b(status|mode|current|what|how|state|info|tell.*me)\b/i,
+    status: /\b(status|mode|current|state|info|how .*(?:doing|working)|what.*mode)\b/i,
     help: /\b(help|commands|what.*can|available|list|how.*use)\b/i,
     stop: /\b(stop|halt|end|quit|disable|off|pause|silent)\b/i,
   };
@@ -110,60 +109,61 @@ export const VoiceControls = ({
 
   const processVoiceCommand = (command: string, confidence: number) => {
     const cleanCommand = command.toLowerCase().trim();
-    
+
     if (cleanCommand === lastProcessedRef.current || cleanCommand.length < 2) {
       return;
     }
-    
+
     lastProcessedRef.current = cleanCommand;
-    addDebugInfo(`Processing: "${cleanCommand}" (confidence: ${confidence})`);
-    
+    addDebugInfo(`[processVoiceCommand] Input: "${cleanCommand}" (conf: ${confidence})`);
+
     setIsProcessingCommand(true);
     setLastCommand(cleanCommand);
-    
-    let commandExecuted = false;
-    
+
+    let matchType: string | null = null;
+
+    // Mutually exclusive matching for commands, ordered so more restrictive/rare are higher
     if (commandPatterns.stop.test(cleanCommand)) {
-      addDebugInfo('Stop command detected');
+      matchType = "stop";
+      addDebugInfo("Matched: stop");
       stopRecognition();
-      speak('Voice recognition stopped');
-      commandExecuted = true;
-    } else if (commandPatterns.camera.test(cleanCommand)) {
-      addDebugInfo('Camera command detected');
-      onVoiceCommand('camera');
-      onCameraAction('start');
-      speak('Camera activated for object detection');
-      commandExecuted = true;
-    } else if (commandPatterns.navigation.test(cleanCommand)) {
-      addDebugInfo('Navigation command detected');
-      onVoiceCommand('navigation');
-      onNavigationAction('start');
-      speak('Navigation mode activated');
-      commandExecuted = true;
+      speak("Voice recognition stopped");
     } else if (commandPatterns.emergency.test(cleanCommand)) {
-      addDebugInfo('Emergency command detected');
-      onVoiceCommand('emergency');
-      onEmergencyAction('open');
-      speak('Emergency panel opened');
-      commandExecuted = true;
+      matchType = "emergency";
+      addDebugInfo("Matched: emergency");
+      onVoiceCommand("emergency");
+      onEmergencyAction("open");
+      speak("Emergency panel opened");
+    } else if (commandPatterns.navigation.test(cleanCommand)) {
+      matchType = "navigation";
+      addDebugInfo("Matched: navigation");
+      onVoiceCommand("navigation");
+      onNavigationAction("start");
+      speak("Navigation mode activated");
     } else if (commandPatterns.settings.test(cleanCommand)) {
-      addDebugInfo('Settings command detected');
-      onVoiceCommand('settings');
-      speak('Settings panel opened');
-      commandExecuted = true;
+      matchType = "settings";
+      addDebugInfo("Matched: settings");
+      onVoiceCommand("settings");
+      speak("Settings panel opened");
     } else if (commandPatterns.status.test(cleanCommand)) {
-      addDebugInfo('Status command detected');
+      matchType = "status";
+      addDebugInfo("Matched: status");
       speak(`Current mode is ${currentMode}. Voice recognition is active.`);
-      commandExecuted = true;
     } else if (commandPatterns.help.test(cleanCommand)) {
-      addDebugInfo('Help command detected');
-      speak('Say camera for object detection, navigate for directions, emergency for help, or settings for preferences');
-      commandExecuted = true;
+      matchType = "help";
+      addDebugInfo("Matched: help");
+      speak("Say camera for object detection, navigate for directions, emergency for help, or settings for preferences");
+    } else if (commandPatterns.camera.test(cleanCommand)) {
+      matchType = "camera";
+      addDebugInfo("Matched: camera");
+      onVoiceCommand("camera");
+      onCameraAction("start");
+      speak("Camera activated for object detection");
     }
 
-    if (!commandExecuted) {
-      addDebugInfo(`No command match found for: "${cleanCommand}"`);
-      speak('Command not recognized. Try saying camera, navigate, emergency, settings, or help');
+    if (!matchType) {
+      addDebugInfo(`[processVoiceCommand] No command matched (input: "${cleanCommand}")`);
+      speak("Command not recognized. Try saying camera, navigate, emergency, settings, or help");
     }
 
     setTimeout(() => {
