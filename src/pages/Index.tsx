@@ -35,7 +35,6 @@ const Index = () => {
 
   // Dynamically populated languages for OCR + TTS based on device/browser support
   const [languageOptions, setLanguageOptions] = useState<LanguageOption[]>([]);
-  const [ttsLang, setTtsLang] = useState("en-US");
 
   useEffect(() => {
     // Fetch supported languages for TTS/OCR
