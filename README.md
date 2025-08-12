@@ -1,73 +1,75 @@
-# Welcome to your Lovable project
+# Guide My Steps Now
 
-## Project info
+A clean and responsive frontend application built with **React**, **TypeScript**, **Tailwind CSS**, and **shadcn-ui**, powered by Vite for fast development.
 
-**URL**: https://lovable.dev/projects/ac5e6283-f38b-47f5-9b38-2ceaa972f9a4
+## Features
 
-## How can I edit this code?
+- Built using **React** and **TypeScript** for robust, type-safe UI development.
+- Styled with **Tailwind CSS** and **shadcn-ui** components for a modern and responsive design.
+- Powered by **Vite** for fast build and development refresh cycles.
+- Well-structured and modular frontend architecture for scalability and maintainability.
 
-There are several ways of editing your application.
+## Getting Started
 
-**Use Lovable**
+### Prerequisites
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/ac5e6283-f38b-47f5-9b38-2ceaa972f9a4) and start prompting.
+- Node.js and npm must be installed on your machine.
 
-Changes made via Lovable will be committed automatically to this repo.
+### Installation
 
-**Use your preferred IDE**
+```bash
+git clone https://github.com/Maniredii/guide-my-steps-now.git
+cd guide-my-steps-now
+npm install
+````
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Running Locally
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+Open the displayed URL (typically `http://localhost:5173`) in your browser to view and interact with the app.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Project Structure
 
-**Use GitHub Codespaces**
+```
+/src
+  ├── components/       # Reusable React UI components
+  ├── pages/            # Page-level views
+  ├── assets/           # Static assets, e.g., images
+  ├── App.tsx           # Main app component
+  └── index.tsx         # Entry point
+...
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Deployment
 
-## What technologies are used for this project?
+Build the optimized production version:
 
-This project is built with:
+```bash
+npm run build
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+Deploy the resulting `dist/` directory to your preferred static hosting provider (e.g. Netlify, Vercel, GitHub Pages).
 
-## How can I deploy this project?
+## Tech Stack
 
-Simply open [Lovable](https://lovable.dev/projects/ac5e6283-f38b-47f5-9b38-2ceaa972f9a4) and click on Share -> Publish.
+* Development: **TypeScript**, **React**
+* UI Library: **shadcn-ui**, **Tailwind CSS**
+* Bundler: **Vite**
 
-## Can I connect a custom domain to my Lovable project?
+## License
 
-Yes, you can!
+Distributed under the MIT License. See `LICENSE` for more details.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+---
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+### Why This README Works
+
+* **Clear structure** — gets newcomers up to speed quickly.
+* **Consistent style** — matches the rest of your GitHub projects.
+* **Tech-focused** — highlights your frontend stack and tools used.
+
+
+[1]: https://github.com/Maniredii/guide-my-steps-now.git "GitHub - Maniredii/guide-my-steps-now"
